@@ -5,6 +5,8 @@ create table public.trade_results (
   created_at timestamptz not null default now()
 );
 alter table public.trade_results enable row level security;
+grant select on public.trade_results to anon;
+grant select, insert, update, delete on public.trade_results to authenticated;
 create policy "Anyone can view trade results" on public.trade_results for select using (true);
 create policy "Signed-in users can add results" on public.trade_results for insert to authenticated with check (true);
 create policy "Signed-in users can update results" on public.trade_results for update to authenticated using (true) with check (true);

@@ -49,8 +49,10 @@ export default function Home() {
 
   const totals = useMemo(() => filteredResults.reduce((total, row) => ({
     profit: total.profit + row.profit, loss: total.loss + row.loss,
-    deposits: total.deposits + row.deposit, withdraws: total.withdraws + row.withdraw
-  }), { profit: 0, loss: 0, deposits: 0, withdraws: 0 }), [filteredResults]);
+    deposits: total.deposits + row.deposit, withdraws: total.withdraws + row.withdraw,
+    opening: total.opening + row.opening
+  }), { profit: 0, loss: 0, deposits: 0, withdraws: 0, opening: 0 }), [filteredResults]);
+  const profitPercent = totals.opening ? ((totals.profit - totals.loss) / totals.opening) * 100 : 0;
 
   const botNames = useMemo(() => [...new Set(results.map((row) => row.botName))].sort(), [results]);
 
@@ -105,6 +107,7 @@ export default function Home() {
 
     <section className="stats" aria-label="Performance summary">
       <article><span>Net profit</span><strong className="positive">{money.format(totals.profit - totals.loss)}</strong></article>
+      <article><span>Profit percentage</span><strong className={profitPercent >= 0 ? "positive" : "negative"}>{profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%</strong></article>
       <article><span>Total profit</span><strong>{money.format(totals.profit)}</strong></article>
       <article><span>Total loss</span><strong className="negative">{money.format(totals.loss)}</strong></article>
       <article><span>Results logged</span><strong>{filteredResults.length}</strong></article>

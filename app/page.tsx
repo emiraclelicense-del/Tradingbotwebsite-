@@ -75,7 +75,12 @@ export default function Home() {
     deposits: total.deposits + row.deposit, withdraws: total.withdraws + row.withdraw,
     opening: total.opening + row.opening
   }), { profit: 0, loss: 0, deposits: 0, withdraws: 0, opening: 0 }), [filteredResults]);
-  const profitPercent = totals.opening ? ((totals.profit - totals.loss) / totals.opening) * 100 : 0;
+  const initialBalance = useMemo(() => Object.values(filteredResults.reduce<Record<string, { date: string; opening: number }>>((balances, row) => {
+    const current = balances[row.botName];
+    if (!current || row.date < current.date) balances[row.botName] = { date: row.date, opening: row.opening };
+    return balances;
+  }, {})).reduce((sum, bot) => sum + bot.opening, 0), [filteredResults]);
+  const profitPercent = initialBalance ? ((totals.profit - totals.loss) / initialBalance) * 100 : 0;
   const performanceCounts = useMemo(() => filteredResults.reduce((counts, row) => {
     const net = row.profit - row.loss;
     if (net > 0) counts.wins += 1;
@@ -86,11 +91,11 @@ export default function Home() {
   const winRate = decidedResults ? (performanceCounts.wins / decidedResults) * 100 : 0;
 
   const botNames = useMemo(() => [...new Set(results.map((row) => row.botName))].sort(), [results]);
-  const botPerformance = useMemo(() => Object.values(results.reduce<Record<string, { name: string; profit: number; loss: number; opening: number; net: number }>>((performance, row) => {
-    const current = performance[row.botName] ?? { name: row.botName, profit: 0, loss: 0, opening: 0, net: 0 };
+  const botPerformance = useMemo(() => Object.values(results.reduce<Record<string, { name: string; profit: number; loss: number; opening: number; initialDate: string; net: number }>>((performance, row) => {
+    const current = performance[row.botName] ?? { name: row.botName, profit: 0, loss: 0, opening: row.opening, initialDate: row.date, net: 0 };
     current.profit += row.profit;
     current.loss += row.loss;
-    current.opening += row.opening;
+    if (row.date < current.initialDate) { current.opening = row.opening; current.initialDate = row.date; }
     current.net += row.profit - row.loss;
     performance[row.botName] = current;
     return performance;
@@ -165,6 +170,7 @@ export default function Home() {
 
     <section className="stats" aria-label="Performance summary">
       <article><span>Net profit</span><strong className="positive">{money.format(totals.profit - totals.loss)}</strong></article>
+      <article><span>Initial balance</span><strong>{money.format(initialBalance)}</strong></article>
       <article><span>Profit percentage</span><strong className={profitPercent >= 0 ? "positive" : "negative"}>{profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%</strong></article>
       <article><span>Total profit</span><strong>{money.format(totals.profit)}</strong></article>
       <article><span>Total loss</span><strong className="negative">{money.format(totals.loss)}</strong></article>
@@ -206,8 +212,8 @@ export default function Home() {
       <div className="table-title"><div><p className="eyebrow">BOT PERFORMANCE</p><h2 id="bot-priority-heading">Bot priority graph</h2></div><span>Ranked by net profit</span></div>
       <div className="performance-total"><div className="verified-total"><strong>{filteredResults.length}</strong><div><b>Verified closed results</b><span>Based on the selected filters</span></div></div><div className="performance-grid"><article className="loss-panel"><strong>{performanceCounts.losses}</strong><span>Losing results</span></article><article className="win-rate"><div className="rate-ring" style={{ "--win-rate": `${winRate * 3.6}deg` } as CSSProperties}><strong>{winRate.toFixed(0)}%</strong><span>Win rate</span></div></article><article className="gain-panel"><strong>{performanceCounts.wins}</strong><span>Winning results</span></article><article className="loss-panel"><strong>{money.format(totals.loss)}</strong><span>Total loss</span></article><article className="gain-panel"><strong>{money.format(totals.profit)}</strong><span>Total profit</span></article></div><div className="net-total"><span>Net performance</span><strong className={totals.profit - totals.loss >= 0 ? "positive" : "negative"}>{totals.profit - totals.loss >= 0 ? "+" : "−"}{money.format(Math.abs(totals.profit - totals.loss))}</strong></div></div>
       {botPerformance.length === 0 ? <p className="chart-empty">Add trade results to see each bot's priority.</p> : <><div className="priority-chart">
-        {botPerformance.map((bot, index) => <div className="priority-row" key={bot.name}><div className="bot-label"><b>{bot.name}</b><span className={index === 0 && bot.net > 0 ? "priority high" : bot.net > 0 ? "priority standard" : "priority review"}>{index === 0 && bot.net > 0 ? "High priority" : bot.net > 0 ? "Standard" : "Review"}</span></div><div className="bar-track"><div className={bot.net >= 0 ? "bot-bar positive-bar" : "bot-bar negative-bar"} style={{ width: `${(Math.abs(bot.net) / Math.max(...botPerformance.map((item) => Math.abs(item.net)), 1)) * 100}%` }} /></div><strong className={bot.net >= 0 ? "positive" : "negative"}>{bot.net >= 0 ? "+" : "−"}{money.format(Math.abs(bot.net))}</strong></div>)}
-      </div><div className="pivot-wrap"><table className="pivot-table"><caption>Bot performance pivot</caption><thead><tr><th>Bot</th><th>Profit</th><th>Loss</th><th>Net</th><th>Return</th><th>Priority</th></tr></thead><tbody>{botPerformance.map((bot, index) => { const returnPercent = bot.opening ? (bot.net / bot.opening) * 100 : 0; const label = index === 0 && bot.net > 0 ? "High" : bot.net > 0 ? "Standard" : "Review"; return <tr key={bot.name}><td><b>{bot.name}</b></td><td className="positive">{money.format(bot.profit)}</td><td className="negative">{money.format(bot.loss)}</td><td className={bot.net >= 0 ? "positive" : "negative"}>{money.format(bot.net)}</td><td>{returnPercent >= 0 ? "+" : ""}{returnPercent.toFixed(2)}%</td><td><span className={`priority ${label.toLowerCase()}`}>{label}</span></td></tr>; })}</tbody></table></div></>}
+        {botPerformance.map((bot, index) => <div className="priority-row" key={bot.name}><div className="bot-label"><b>{bot.name}</b><span className={index === 0 && bot.net > 0 ? "priority high" : bot.net > 0 ? "priority standard" : "priority review"}>{index === 0 && bot.net > 0 ? "High priority" : bot.net > 0 ? "Standard" : "Review"}</span></div><div className="bar-track"><div className={bot.net >= 0 ? "bot-bar positive-bar" : "bot-bar negative-bar"} style={{ width: `${(Math.abs(bot.net) / Math.max(...botPerformance.map((item) => Math.abs(item.net)), 1)) * 100}%` }} /></div><strong className={bot.net >= 0 ? "positive" : "negative"}>{bot.net >= 0 ? "+" : "−"}{money.format(Math.abs(bot.net))}<small>{bot.opening ? `${bot.net >= 0 ? "+" : ""}${((bot.net / bot.opening) * 100).toFixed(2)}%` : "—"}</small></strong></div>)}
+      </div><div className="pivot-wrap"><table className="pivot-table"><caption>Bot performance pivot</caption><thead><tr><th>Bot</th><th>Initial Balance</th><th>Profit</th><th>Loss</th><th>Net</th><th>Return</th><th>Priority</th></tr></thead><tbody>{botPerformance.map((bot, index) => { const returnPercent = bot.opening ? (bot.net / bot.opening) * 100 : 0; const label = index === 0 && bot.net > 0 ? "High" : bot.net > 0 ? "Standard" : "Review"; return <tr key={bot.name}><td><b>{bot.name}</b></td><td>{money.format(bot.opening)}</td><td className="positive">{money.format(bot.profit)}</td><td className="negative">{money.format(bot.loss)}</td><td className={bot.net >= 0 ? "positive" : "negative"}>{money.format(bot.net)}</td><td>{returnPercent >= 0 ? "+" : ""}{returnPercent.toFixed(2)}%</td><td><span className={`priority ${label.toLowerCase()}`}>{label}</span></td></tr>; })}</tbody></table></div></>}
     </section>
   </main>;
 }

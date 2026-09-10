@@ -46,6 +46,7 @@ export default function Home() {
     const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
     if (timeFilter === "monthly") start.setDate(today.getDate() - 29);
+    if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
     return results.filter((row) => {
       if (botFilter !== "all" && row.botName !== botFilter) return false;
       if (timeFilter === "all") return true;
@@ -156,7 +157,7 @@ export default function Home() {
     setShowForm(true);
   }
 
-  const filters = <div className="filters"><label>Bot Name<select value={botFilter} onChange={(event) => setBotFilter(event.target.value)}><option value="all">All bots</option>{botNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label><label>Time<select value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="all">All time</option><option value="daily">Daily (today)</option><option value="yesterday">Yesterday</option><option value="weekly">Weekly (last 7 days)</option><option value="monthly">Monthly (last 30 days)</option><option value="custom">Custom range</option></select></label>{timeFilter === "custom" && <><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></>}</div>;
+  const filters = <div className="filters"><label>Bot Name<select value={botFilter} onChange={(event) => setBotFilter(event.target.value)}><option value="all">All bots</option>{botNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label><fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">{[{ value: "all", label: "All time" }, { value: "daily", label: "Today" }, { value: "yesterday", label: "Yesterday" }, { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" }, { value: "yearly", label: "Yearly" }, { value: "custom", label: "Custom" }].map(({ value, label }) => <button className={timeFilter === value ? "active" : ""} key={value} type="button" aria-pressed={timeFilter === value} onClick={() => setTimeFilter(value)}>{label}</button>)}</div></fieldset>{timeFilter === "custom" && <><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></>}</div>;
 
   return <main className={`${theme}-theme`}>
     <section className="hero">

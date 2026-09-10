@@ -160,7 +160,7 @@ export default function Home() {
 
   return <main className={`${theme}-theme`}>
     <section className="hero">
-      <div><p className="eyebrow">TRADING PERFORMANCE</p><h1>Emircale<span>X</span> Bot</h1><p className="subhead">Daily results, clearly tracked.</p></div>
+      <div><p className="eyebrow">TRADING PERFORMANCE</p><h1>eMiracle <span>X</span> Bots</h1><p className="subhead">Daily results, clearly tracked.</p></div>
       <div className="hero-actions"><button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀ Light" : "◐ Dark"}</button><button className="primary" onClick={() => isAdmin ? (setEditing(null), setShowForm((visible) => !visible)) : setLoginOpen(true)}>{isAdmin ? (showForm ? "Close form" : "+ Add daily result") : "Admin sign in"}</button></div>
     </section>
 

@@ -183,8 +183,6 @@ export default function Home() {
       <article><span>Results logged</span><strong>{filteredResults.length}</strong></article>
     </section>
 
-    <section className="filter-area" aria-label="Trade result filters">{filters}</section>
-
     {showForm && <section className="form-card"><div><p className="eyebrow">{editing ? "EDIT ENTRY" : "NEW ENTRY"}</p><h2>{editing ? "Edit daily trade result" : "Add daily trade result"}</h2></div>
       <form key={editing?.id ?? "new"} onSubmit={addResult}>
         <label>Date<input name="date" type="date" defaultValue={editing?.date} required /></label>
@@ -214,7 +212,7 @@ export default function Home() {
       </nav>}
     </section>
 
-    <section className="priority-card" aria-labelledby="bot-priority-heading">
+    <section className="priority-card" aria-labelledby="bot-priority-heading"><div className="filter-area" aria-label="Trade result filters">{filters}</div>
       <div className="table-title"><div><p className="eyebrow">BOT PERFORMANCE</p><h2 id="bot-priority-heading">Bot priority graph</h2></div><span>Ranked by net profit</span></div>
       <div className="performance-total"><div className="verified-total"><strong>{filteredResults.length}</strong><div><b>Verified closed results</b><span>Based on the selected filters</span></div></div><div className="performance-grid"><article className="loss-panel"><strong>{performanceCounts.losses}</strong><span>Losing results</span></article><article className="win-rate"><div className="rate-ring" style={{ "--win-rate": `${winRate * 3.6}deg` } as CSSProperties}><strong>{winRate.toFixed(0)}%</strong><span>Win rate</span></div></article><article className="gain-panel"><strong>{performanceCounts.wins}</strong><span>Winning results</span></article><article className="loss-panel"><strong>{money.format(totals.loss)}</strong><span>Total loss</span></article><article className="gain-panel"><strong>{money.format(totals.profit)}</strong><span>Total profit</span></article></div><div className="net-total"><span>Net performance</span><strong className={totals.profit - totals.loss >= 0 ? "positive" : "negative"}>{totals.profit - totals.loss >= 0 ? "+" : "−"}{money.format(Math.abs(totals.profit - totals.loss))}</strong></div></div>
       {botPerformance.length === 0 ? <p className="chart-empty">Add trade results to see each bot's priority.</p> : <><div className="priority-chart">

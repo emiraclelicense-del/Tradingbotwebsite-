@@ -17,7 +17,7 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Result | null>(null);
   const [botFilter, setBotFilter] = useState("all");
-  const [timeFilter, setTimeFilter] = useState("all");
+  const [timeFilter, setTimeFilter] = useState("monthly");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [page, setPage] = useState(1);
@@ -76,6 +76,12 @@ export default function Home() {
     deposits: total.deposits + row.deposit, withdraws: total.withdraws + row.withdraw,
     opening: total.opening + row.opening
   }), { profit: 0, loss: 0, deposits: 0, withdraws: 0, opening: 0 }), [filteredResults]);
+  const initialBalance = useMemo(() => Object.values(filteredResults.reduce<Record<string, { date: string; opening: number }>>((balances, row) => {
+    const current = balances[row.botName];
+    if (!current || row.date < current.date) balances[row.botName] = { date: row.date, opening: row.opening };
+    return balances;
+  }, {})).reduce((sum, bot) => sum + bot.opening, 0), [filteredResults]);
+  const profitPercent = initialBalance ? ((totals.profit - totals.loss) / initialBalance) * 100 : 0;
   const performanceCounts = useMemo(() => filteredResults.reduce((counts, row) => {
     const net = row.profit - row.loss;
     if (net > 0) counts.wins += 1;
@@ -85,7 +91,6 @@ export default function Home() {
   const decidedResults = performanceCounts.wins + performanceCounts.losses;
   const winRate = decidedResults ? (performanceCounts.wins / decidedResults) * 100 : 0;
 
-  const botNames = useMemo(() => [...new Set(results.map((row) => row.botName))].sort(), [results]);
   const botPerformance = useMemo(() => Object.values(results.reduce<Record<string, { name: string; profit: number; loss: number; opening: number; initialDate: string; net: number }>>((performance, row) => {
     const current = performance[row.botName] ?? { name: row.botName, profit: 0, loss: 0, opening: row.opening, initialDate: row.date, net: 0 };
     current.profit += row.profit;
@@ -160,7 +165,7 @@ export default function Home() {
     setCustomStart(date); setCustomEnd(date); setTimeFilter("custom");
   }
 
-  const filters = <div className="filters"><fieldset className="time-filter"><legend>Bot Name</legend><div className="time-filter-buttons">{[{ value: "all", label: "All bots" }, ...botNames.map((name) => ({ value: name, label: name }))].map(({ value, label }) => <button className={botFilter === value ? "active" : ""} key={value} type="button" aria-pressed={botFilter === value} onClick={() => setBotFilter(value)}>{label}</button>)}</div></fieldset><fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">{[{ value: "all", label: "All time" }, { value: "daily", label: "Today" }, { value: "yesterday", label: "Yesterday" }, { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" }, { value: "yearly", label: "Yearly" }, { value: "custom", label: "Custom" }].map(({ value, label }) => <button className={timeFilter === value ? "active" : ""} key={value} type="button" aria-pressed={timeFilter === value} onClick={() => setTimeFilter(value)}>{label}</button>)}</div><div className="day-navigation"><span>Browse individual days</span><button type="button" onClick={() => browseDay(-1)}>← Previous day</button><button type="button" onClick={() => browseDay(1)}>Next day →</button></div></fieldset>{timeFilter === "custom" && <><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></>}</div>;
+  const filters = <div className="filters"><fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">{[{ value: "all", label: "All time" }, { value: "daily", label: "Today" }, { value: "yesterday", label: "Yesterday" }, { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" }, { value: "yearly", label: "Yearly" }, { value: "custom", label: "Custom" }].map(({ value, label }) => <button className={timeFilter === value ? "active" : ""} key={value} type="button" aria-pressed={timeFilter === value} onClick={() => setTimeFilter(value)}>{label}</button>)}</div><div className="day-navigation"><span>Browse individual days</span><button type="button" onClick={() => browseDay(-1)}>← Previous day</button><button type="button" onClick={() => browseDay(1)}>Next day →</button></div></fieldset>{timeFilter === "custom" && <div className="custom-date-range"><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</div>;
 
   return <main className={`${theme}-theme`}>
     <section className="hero"><div className="hero-copy"><div className="hero-top"><p className="eyebrow">TRADING PERFORMANCE</p><div className="hero-actions"><button className="theme-toggle" type="button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀" : "◐"}</button><button className="primary" onClick={() => isAdmin ? (setEditing(null), setShowForm((visible) => !visible)) : setLoginOpen(true)}>{isAdmin ? (showForm ? "Close form" : "+ Add daily result") : "Admin Login"}</button></div></div><h1>eMiracle <span>X</span> Bots</h1><p className="subhead">Daily results, clearly tracked.</p></div></section>
@@ -168,6 +173,15 @@ export default function Home() {
     {error && <p className="notice">{error}</p>}
     {loginOpen && <section className="login-card"><h2>Admin sign in</h2><form onSubmit={signIn}><input name="email" type="email" placeholder="Email" required /><input name="password" type="password" placeholder="Password" required /><button className="primary">Sign in</button></form></section>}
     {isAdmin && <button className="signout" onClick={signOut}>Sign out of admin</button>}
+
+    <section className="stats" aria-label="Performance summary">
+      <article><span>Net profit</span><strong className="positive">{money.format(totals.profit - totals.loss)}</strong></article>
+      <article><span>Initial balance</span><strong>{money.format(initialBalance)}</strong></article>
+      <article><span>Profit percentage</span><strong className={profitPercent >= 0 ? "positive" : "negative"}>{profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%</strong></article>
+      <article><span>Total profit</span><strong>{money.format(totals.profit)}</strong></article>
+      <article><span>Total loss</span><strong className="negative">{money.format(totals.loss)}</strong></article>
+      <article><span>Results logged</span><strong>{filteredResults.length}</strong></article>
+    </section>
 
     <section className="filter-area" aria-label="Trade result filters">{filters}</section>
 
@@ -204,7 +218,7 @@ export default function Home() {
       <div className="table-title"><div><p className="eyebrow">BOT PERFORMANCE</p><h2 id="bot-priority-heading">Bot priority graph</h2></div><span>Ranked by net profit</span></div>
       <div className="performance-total"><div className="verified-total"><strong>{filteredResults.length}</strong><div><b>Verified closed results</b><span>Based on the selected filters</span></div></div><div className="performance-grid"><article className="loss-panel"><strong>{performanceCounts.losses}</strong><span>Losing results</span></article><article className="win-rate"><div className="rate-ring" style={{ "--win-rate": `${winRate * 3.6}deg` } as CSSProperties}><strong>{winRate.toFixed(0)}%</strong><span>Win rate</span></div></article><article className="gain-panel"><strong>{performanceCounts.wins}</strong><span>Winning results</span></article><article className="loss-panel"><strong>{money.format(totals.loss)}</strong><span>Total loss</span></article><article className="gain-panel"><strong>{money.format(totals.profit)}</strong><span>Total profit</span></article></div><div className="net-total"><span>Net performance</span><strong className={totals.profit - totals.loss >= 0 ? "positive" : "negative"}>{totals.profit - totals.loss >= 0 ? "+" : "−"}{money.format(Math.abs(totals.profit - totals.loss))}</strong></div></div>
       {botPerformance.length === 0 ? <p className="chart-empty">Add trade results to see each bot's priority.</p> : <><div className="priority-chart">
-        {botPerformance.map((bot, index) => <button className={`priority-row${botFilter === bot.name ? " selected" : ""}`} key={bot.name} type="button" onClick={() => setBotFilter(bot.name)} aria-pressed={botFilter === bot.name} aria-label={`Filter results by ${bot.name}`}><div className="bot-label"><b>{bot.name}</b><span className={index === 0 && bot.net > 0 ? "priority high" : bot.net > 0 ? "priority standard" : "priority review"}>{index === 0 && bot.net > 0 ? "High priority" : bot.net > 0 ? "Standard" : "Review"}</span></div><div className="bar-track"><div className={bot.net >= 0 ? "bot-bar positive-bar" : "bot-bar negative-bar"} style={{ width: `${(Math.abs(bot.net) / Math.max(...botPerformance.map((item) => Math.abs(item.net)), 1)) * 100}%` }} /></div><strong className={bot.net >= 0 ? "positive" : "negative"}>{bot.net >= 0 ? "+" : "−"}{money.format(Math.abs(bot.net))}<small>{bot.opening ? `${bot.net >= 0 ? "+" : ""}${((bot.net / bot.opening) * 100).toFixed(2)}%` : "—"}</small></strong></button>)}
+        {botPerformance.map((bot, index) => <button className={`priority-row${botFilter === bot.name ? " selected" : ""}`} key={bot.name} type="button" onClick={() => setBotFilter((current) => current === bot.name ? "all" : bot.name)} aria-pressed={botFilter === bot.name} aria-label={botFilter === bot.name ? `Clear ${bot.name} filter` : `Filter results by ${bot.name}`}><div className="bot-label"><b>{bot.name}</b><span className={index === 0 && bot.net > 0 ? "priority high" : bot.net > 0 ? "priority standard" : "priority review"}>{index === 0 && bot.net > 0 ? "High priority" : bot.net > 0 ? "Standard" : "Review"}</span></div><div className="bar-track"><div className={bot.net >= 0 ? "bot-bar positive-bar" : "bot-bar negative-bar"} style={{ width: `${(Math.abs(bot.net) / Math.max(...botPerformance.map((item) => Math.abs(item.net)), 1)) * 100}%` }} /></div><strong className={bot.net >= 0 ? "positive" : "negative"}>{bot.net >= 0 ? "+" : "−"}{money.format(Math.abs(bot.net))}<small>{bot.opening ? `${bot.net >= 0 ? "+" : ""}${((bot.net / bot.opening) * 100).toFixed(2)}%` : "—"}</small></strong></button>)}
       </div><div className="pivot-wrap"><table className="pivot-table"><caption>Bot performance pivot</caption><thead><tr><th>Bot</th><th>Initial Balance</th><th>Profit</th><th>Loss</th><th>Net</th><th>Return</th><th>Priority</th></tr></thead><tbody>{botPerformance.map((bot, index) => { const returnPercent = bot.opening ? (bot.net / bot.opening) * 100 : 0; const label = index === 0 && bot.net > 0 ? "High" : bot.net > 0 ? "Standard" : "Review"; return <tr key={bot.name}><td><b>{bot.name}</b></td><td>{money.format(bot.opening)}</td><td className="positive">{money.format(bot.profit)}</td><td className="negative">{money.format(bot.loss)}</td><td className={bot.net >= 0 ? "positive" : "negative"}>{money.format(bot.net)}</td><td>{returnPercent >= 0 ? "+" : ""}{returnPercent.toFixed(2)}%</td><td><span className={`priority ${label.toLowerCase()}`}>{label}</span></td></tr>; })}</tbody></table></div></>}
     </section>
   </main>;

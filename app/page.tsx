@@ -207,10 +207,10 @@ export default function Home() {
     <section className="stats" aria-label="Performance summary">
       <article><span>Initial balance</span><strong>{money.format(initialBalance)}</strong></article>
       <article><span>Results logged</span><strong>{filteredResults.length}</strong></article>
-      <article><span>Net profit</span><strong className="positive">{money.format(totals.profit - totals.loss)}</strong></article>
       <article><span>Net profit percentage</span><strong className={profitPercent >= 0 ? "positive" : "negative"}>{profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%</strong></article>
       <article><span>Total profit</span><strong>{money.format(totals.profit)}</strong></article>
       <article><span>Total loss</span><strong className="negative">{money.format(totals.loss)}</strong></article>
+      <article><span>Net profit</span><strong className="positive">{money.format(totals.profit - totals.loss)}</strong></article>
     </section>
 
     {showForm && <section className="form-card"><div><p className="eyebrow">{editing ? "EDIT ENTRY" : "NEW ENTRY"}</p><h2>{editing ? "Edit daily trade result" : "Add daily trade result"}</h2></div>

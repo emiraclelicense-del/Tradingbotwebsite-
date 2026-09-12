@@ -17,7 +17,7 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Result | null>(null);
   const [botFilter, setBotFilter] = useState("all");
-  const [timeFilter, setTimeFilter] = useState("yesterday");
+  const [timeFilter, setTimeFilter] = useState("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [dayIndex, setDayIndex] = useState(0);

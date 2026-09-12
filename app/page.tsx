@@ -56,7 +56,12 @@ export default function Home() {
     });
   }, [results, botFilter, timeFilter, customStart, customEnd]);
 
-  const sortedFilteredResults = useMemo(() => [...filteredResults].sort((a, b) => b.date.localeCompare(a.date)), [filteredResults]);
+  const sortedFilteredResults = useMemo(() => [...filteredResults].sort((a, b) => {
+    const dateOrder = b.date.localeCompare(a.date);
+    if (dateOrder) return dateOrder;
+    const netOrder = (b.profit - b.loss) - (a.profit - a.loss);
+    return netOrder || a.botName.localeCompare(b.botName, undefined, { numeric: true, sensitivity: "base" });
+  }), [filteredResults]);
   const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   const selectedPeriod = useMemo(() => {
     const today = new Date();

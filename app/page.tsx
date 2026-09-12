@@ -64,7 +64,7 @@ export default function Home() {
     const netOrder = (b.profit - b.loss) - (a.profit - a.loss);
     return netOrder || a.botName.localeCompare(b.botName, undefined, { numeric: true, sensitivity: "base" });
   }), [filteredResults]);
-  const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
   const selectedPeriod = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -240,7 +240,7 @@ export default function Home() {
       <tbody>{filteredResults.length === 0 ? <tr><td className="empty" colSpan={11}>No matching trade results found for {selectedScope}.</td></tr> : visibleResults.map((row) => {
         const closing = row.closing ?? row.opening + row.profit - row.loss + row.deposit - row.withdraw;
         const percentage = row.opening ? ((row.profit - row.loss) / row.opening) * 100 : 0;
-        return <tr key={row.id}><td>{new Date(`${row.date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{money.format(row.deposit)}</td><td>{money.format(row.withdraw)}</td><td>{isAdmin && <><button className="edit" onClick={() => editResult(row)}>Edit</button><button className="delete" onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
+        return <tr key={row.id}><td>{formatDate(row.date)}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{money.format(row.deposit)}</td><td>{money.format(row.withdraw)}</td><td>{isAdmin && <><button className="edit" onClick={() => editResult(row)}>Edit</button><button className="delete" onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
       })}</tbody></table></div>
       {!hasActiveFilter && resultDates.length > 0 && <nav className="pagination" aria-label="Daily trade results navigation">
         <button type="button" onClick={() => setDayIndex((current) => current + 1)} disabled={dayIndex === resultDates.length - 1}>← Previous day</button>

@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 type Result = { id: string; date: string; botName: string; trades: string; opening: number; closing: number; profit: number; loss: number; deposit: number; withdraw: number };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);
 
 export default function ResultListPage() {
@@ -56,7 +57,7 @@ export default function ResultListPage() {
       <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Return %</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th></tr></thead><tbody>{matchingResults.length === 0 ? <tr><td className="empty" colSpan={8}>No {title.toLowerCase()} found.</td></tr> : matchingResults.map((row) => {
         const net = row.profit - row.loss;
         const percent = row.opening ? (net / row.opening) * 100 : 0;
-        return <tr key={row.id}><td>{new Date(`${row.date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percent >= 0 ? "pill gain" : "pill loss"}>{percent >= 0 ? "+" : ""}{percent.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(row.closing)}</td><td className={net >= 0 ? "positive" : "negative"}>{money.format(net)}</td><td className="negative">{money.format(row.loss)}</td></tr>;
+        return <tr key={row.id}><td>{formatDate(row.date)}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percent >= 0 ? "pill gain" : "pill loss"}>{percent >= 0 ? "+" : ""}{percent.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(row.closing)}</td><td className={net >= 0 ? "positive" : "negative"}>{money.format(net)}</td><td className="negative">{money.format(row.loss)}</td></tr>;
       })}</tbody></table></div>
     </section>
   </main>;

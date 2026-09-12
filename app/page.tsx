@@ -57,11 +57,31 @@ export default function Home() {
     });
   }, [results, botFilter, timeFilter, customStart, customEnd]);
 
-  const resultDates = [...new Set(filteredResults.map((row) => row.date))].sort((a, b) => b.localeCompare(a));
-  const latestResultDate = resultDates[page - 1] ?? "";
-  const latestDayResults = filteredResults.filter((row) => row.date === latestResultDate);
-  const totalPages = Math.max(1, resultDates.length);
-  const visibleResults = latestDayResults;
+  const resultsPerPage = 10;
+  const sortedFilteredResults = useMemo(() => [...filteredResults].sort((a, b) => b.date.localeCompare(a.date)), [filteredResults]);
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredResults.length / resultsPerPage));
+  const visibleResults = sortedFilteredResults.slice((page - 1) * resultsPerPage, page * resultsPerPage);
+  const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  const selectedPeriod = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const rangeLabel = (start: Date, end: Date) => `${formatDate(dateKey(start))} – ${formatDate(dateKey(end))}`;
+    if (timeFilter === "all") return "All time";
+    if (timeFilter === "custom") {
+      if (customStart && customEnd) return customStart === customEnd ? formatDate(customStart) : `${formatDate(customStart)} – ${formatDate(customEnd)}`;
+      if (customStart) return `From ${formatDate(customStart)}`;
+      if (customEnd) return `Up to ${formatDate(customEnd)}`;
+      return "Custom range";
+    }
+    if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return formatDate(dateKey(yesterday)); }
+    if (timeFilter === "daily") return formatDate(dateKey(today));
+    const start = new Date(today);
+    if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
+    if (timeFilter === "monthly") start.setDate(today.getDate() - 29);
+    if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
+    return rangeLabel(start, today);
+  }, [timeFilter, customStart, customEnd]);
 
   useEffect(() => {
     setPage(1);
@@ -91,7 +111,7 @@ export default function Home() {
   const decidedResults = performanceCounts.wins + performanceCounts.losses;
   const winRate = decidedResults ? (performanceCounts.wins / decidedResults) * 100 : 0;
 
-  const botPerformance = useMemo(() => Object.values(results.reduce<Record<string, { name: string; profit: number; loss: number; opening: number; initialDate: string; net: number }>>((performance, row) => {
+  const botPerformance = useMemo(() => Object.values(filteredResults.reduce<Record<string, { name: string; profit: number; loss: number; opening: number; initialDate: string; net: number }>>((performance, row) => {
     const current = performance[row.botName] ?? { name: row.botName, profit: 0, loss: 0, opening: row.opening, initialDate: row.date, net: 0 };
     current.profit += row.profit;
     current.loss += row.loss;
@@ -99,7 +119,7 @@ export default function Home() {
     current.net += row.profit - row.loss;
     performance[row.botName] = current;
     return performance;
-  }, {})).sort((a, b) => b.net - a.net), [results]);
+  }, {})).sort((a, b) => b.net - a.net), [filteredResults]);
   const cumulativeValues = botPerformance.reduce<number[]>((values, bot) => [...values, (values.at(-1) ?? 0) + bot.net], []);
   const chartMaxValue = Math.max(...cumulativeValues, 0);
   const chartMinValue = Math.min(...cumulativeValues, 0);
@@ -198,14 +218,14 @@ export default function Home() {
       </form>
     </section>}
 
-    <section className="table-card"><div className="table-title"><div><p className="eyebrow">DAILY LOG</p><h2>Daily trade results</h2></div><span>{latestDayResults.length} entries{latestResultDate && ` · ${new Date(`${latestResultDate}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`}</span></div>
+    <section className="table-card"><div className="table-title"><div><p className="eyebrow">TRADE LOG</p><h2>Trade results for {selectedPeriod}</h2></div><span>{filteredResults.length} entries · {selectedPeriod}</span></div>
       <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th><th>Deposit</th><th>Withdraw</th><th>Return %</th><th></th></tr></thead>
-      <tbody>{latestDayResults.length === 0 ? <tr><td className="empty" colSpan={11}>No matching trade results found.</td></tr> : visibleResults.map((row) => {
+      <tbody>{filteredResults.length === 0 ? <tr><td className="empty" colSpan={11}>No matching trade results found for {selectedPeriod}.</td></tr> : visibleResults.map((row) => {
         const closing = row.closing ?? row.opening + row.profit - row.loss + row.deposit - row.withdraw;
         const percentage = row.opening ? ((row.profit - row.loss) / row.opening) * 100 : 0;
         return <tr key={row.id}><td>{new Date(`${row.date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{money.format(row.deposit)}</td><td>{money.format(row.withdraw)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{isAdmin && <><button className="edit" onClick={() => editResult(row)}>Edit</button><button className="delete" onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
       })}</tbody></table></div>
-      {latestDayResults.length > 0 && <nav className="pagination" aria-label="Trade results pages">
+      {filteredResults.length > 0 && <nav className="pagination" aria-label="Trade results pages">
         <button type="button" onClick={() => setPage((current) => current - 1)} disabled={page === 1}>← Previous</button>
         <span>Page {page} of {totalPages}</span>
         <button type="button" onClick={() => setPage((current) => current + 1)} disabled={page === totalPages}>Next →</button>
@@ -214,7 +234,7 @@ export default function Home() {
 
     <section className="priority-card" aria-labelledby="bot-priority-heading"><div className="filter-area" aria-label="Trade result filters">{filters}</div>
       <div className="table-title"><div><p className="eyebrow">BOT PERFORMANCE</p><h2 id="bot-priority-heading">Bot priority graph</h2></div><span>Ranked by net profit</span></div>
-      <div className="performance-total"><div className="verified-total"><strong>{filteredResults.length}</strong><div><b>Verified closed results</b><span>Based on the selected filters</span></div></div><div className="performance-grid"><article className="loss-panel"><strong>{performanceCounts.losses}</strong><span>Losing results</span></article><article className="win-rate"><div className="rate-ring" style={{ "--win-rate": `${winRate * 3.6}deg` } as CSSProperties}><strong>{winRate.toFixed(0)}%</strong><span>Win rate</span></div></article><article className="gain-panel"><strong>{performanceCounts.wins}</strong><span>Winning results</span></article><article className="loss-panel"><strong>{money.format(totals.loss)}</strong><span>Total loss</span></article><article className="gain-panel"><strong>{money.format(totals.profit)}</strong><span>Total profit</span></article></div><div className="net-total"><span>Net performance</span><strong className={totals.profit - totals.loss >= 0 ? "positive" : "negative"}>{totals.profit - totals.loss >= 0 ? "+" : "−"}{money.format(Math.abs(totals.profit - totals.loss))}</strong></div></div>
+      <div className="performance-total"><div className="verified-total"><strong>{filteredResults.length}</strong><div><b>Verified closed results</b><span>{selectedPeriod}</span></div></div><div className="performance-grid"><article className="loss-panel"><strong>{performanceCounts.losses}</strong><span>Losing results</span></article><article className="win-rate"><div className="rate-ring" style={{ "--win-rate": `${winRate * 3.6}deg` } as CSSProperties}><strong>{winRate.toFixed(0)}%</strong><span>Win rate</span></div></article><article className="gain-panel"><strong>{performanceCounts.wins}</strong><span>Winning results</span></article><article className="loss-panel"><strong>{money.format(totals.loss)}</strong><span>Total loss</span></article><article className="gain-panel"><strong>{money.format(totals.profit)}</strong><span>Total profit</span></article></div><div className="net-total"><span>Net performance</span><strong className={totals.profit - totals.loss >= 0 ? "positive" : "negative"}>{totals.profit - totals.loss >= 0 ? "+" : "−"}{money.format(Math.abs(totals.profit - totals.loss))}</strong></div></div>
       {botPerformance.length === 0 ? <p className="chart-empty">Add trade results to see each bot's priority.</p> : <><div className="priority-chart">
         {botPerformance.map((bot, index) => <button className={`priority-row${botFilter === bot.name ? " selected" : ""}`} key={bot.name} type="button" onClick={() => setBotFilter((current) => current === bot.name ? "all" : bot.name)} aria-pressed={botFilter === bot.name} aria-label={botFilter === bot.name ? `Clear ${bot.name} filter` : `Filter results by ${bot.name}`}><div className="bot-label"><b>{bot.name}</b><span className={index === 0 && bot.net > 0 ? "priority high" : bot.net > 0 ? "priority standard" : "priority review"}>{index === 0 && bot.net > 0 ? "High priority" : bot.net > 0 ? "Standard" : "Review"}</span></div><div className="bar-track"><div className={bot.net >= 0 ? "bot-bar positive-bar" : "bot-bar negative-bar"} style={{ width: `${(Math.abs(bot.net) / Math.max(...botPerformance.map((item) => Math.abs(item.net)), 1)) * 100}%` }} /></div><strong className={bot.net >= 0 ? "positive" : "negative"}>{bot.net >= 0 ? "+" : "−"}{money.format(Math.abs(bot.net))}<small>{bot.opening ? `${bot.net >= 0 ? "+" : ""}${((bot.net / bot.opening) * 100).toFixed(2)}%` : "—"}</small></strong></button>)}
       </div><div className="pivot-wrap"><table className="pivot-table"><caption>Bot performance pivot</caption><thead><tr><th>Bot</th><th>Initial Balance</th><th>Profit</th><th>Loss</th><th>Net</th><th>Return</th><th>Priority</th></tr></thead><tbody>{botPerformance.map((bot, index) => { const returnPercent = bot.opening ? (bot.net / bot.opening) * 100 : 0; const label = index === 0 && bot.net > 0 ? "High" : bot.net > 0 ? "Standard" : "Review"; return <tr key={bot.name}><td><b>{bot.name}</b></td><td>{money.format(bot.opening)}</td><td className="positive">{money.format(bot.profit)}</td><td className="negative">{money.format(bot.loss)}</td><td className={bot.net >= 0 ? "positive" : "negative"}>{money.format(bot.net)}</td><td>{returnPercent >= 0 ? "+" : ""}{returnPercent.toFixed(2)}%</td><td><span className={`priority ${label.toLowerCase()}`}>{label}</span></td></tr>; })}</tbody></table></div></>}

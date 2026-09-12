@@ -53,10 +53,10 @@ export default function ResultListPage() {
     <section className="hero"><div><p className="eyebrow">TRADE RESULTS</p><h1>{title}</h1><p className="subhead">{matchingResults.length} closed trades</p></div><Link className="primary" href="/">← Back to dashboard</Link></section>
     {error && <p className="notice">{error}</p>}
     <section className="table-card"><div className="table-title"><div><p className="eyebrow">{isWinning ? "PROFITABLE TRADES" : "LOSS-MAKING TRADES"}</p><h2>All {title.toLowerCase()}</h2></div><span>{matchingResults.length} entries</span></div>
-      <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th><th>Return %</th></tr></thead><tbody>{matchingResults.length === 0 ? <tr><td className="empty" colSpan={8}>No {title.toLowerCase()} found.</td></tr> : matchingResults.map((row) => {
+      <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Return %</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th></tr></thead><tbody>{matchingResults.length === 0 ? <tr><td className="empty" colSpan={8}>No {title.toLowerCase()} found.</td></tr> : matchingResults.map((row) => {
         const net = row.profit - row.loss;
         const percent = row.opening ? (net / row.opening) * 100 : 0;
-        return <tr key={row.id}><td>{new Date(`${row.date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td>{row.trades}</td><td>{money.format(row.closing)}</td><td className={net >= 0 ? "positive" : "negative"}>{money.format(net)}</td><td className="negative">{money.format(row.loss)}</td><td><span className={percent >= 0 ? "pill gain" : "pill loss"}>{percent >= 0 ? "+" : ""}{percent.toFixed(2)}%</span></td></tr>;
+        return <tr key={row.id}><td>{new Date(`${row.date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percent >= 0 ? "pill gain" : "pill loss"}>{percent >= 0 ? "+" : ""}{percent.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(row.closing)}</td><td className={net >= 0 ? "positive" : "negative"}>{money.format(net)}</td><td className="negative">{money.format(row.loss)}</td></tr>;
       })}</tbody></table></div>
     </section>
   </main>;

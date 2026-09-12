@@ -17,7 +17,7 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Result | null>(null);
   const [botFilter, setBotFilter] = useState("all");
-  const [timeFilter, setTimeFilter] = useState("all");
+  const [timeFilter, setTimeFilter] = useState("yesterday");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [dayIndex, setDayIndex] = useState(0);
@@ -88,6 +88,13 @@ export default function Home() {
   const baseScope = botFilter === "all" ? selectedPeriod : `${botFilter} · ${selectedPeriod}`;
   const selectedScope = baseScope;
   const hasActiveFilter = botFilter !== "all" || timeFilter !== "all";
+  const resultListHref = (type: "win" | "loss") => {
+    const params = new URLSearchParams({ time: timeFilter });
+    if (botFilter !== "all") params.set("bot", botFilter);
+    if (customStart) params.set("start", customStart);
+    if (customEnd) params.set("end", customEnd);
+    return `/results/${type}?${params.toString()}`;
+  };
   const resultDates = useMemo(() => [...new Set(sortedFilteredResults.map((row) => row.date))], [sortedFilteredResults]);
   const tableDate = resultDates[dayIndex] ?? "";
   const visibleResults = hasActiveFilter ? sortedFilteredResults : sortedFilteredResults.filter((row) => row.date === tableDate);
@@ -244,7 +251,7 @@ export default function Home() {
 
     <section className="priority-card" aria-labelledby="bot-priority-heading"><div className="filter-area" aria-label="Trade result filters">{filters}</div>
       <div className="table-title"><div><p className="eyebrow">BOT PERFORMANCE</p><h2 id="bot-priority-heading">Bot priority graph</h2></div><span>Ranked by net profit</span></div>
-      <div className="performance-total"><div className="verified-total"><strong>{filteredResults.length}</strong><div><b>Verified closed results</b><span>{selectedScope}</span></div></div><div className="performance-grid"><a className="loss-panel result-filter" href="/results/loss"><strong>{performanceCounts.losses}</strong><span>Losing results</span></a><article className="win-rate"><div className="rate-ring" style={{ "--win-rate": `${winRate * 3.6}deg` } as CSSProperties}><strong>{winRate.toFixed(0)}%</strong><span>Win rate</span></div></article><a className="gain-panel result-filter" href="/results/win"><strong>{performanceCounts.wins}</strong><span>Winning results</span></a><article className="loss-panel"><strong>{money.format(totals.loss)}</strong><span>Total loss</span></article><article className="gain-panel"><strong>{money.format(totals.profit)}</strong><span>Total profit</span></article></div><div className="net-total"><span>Net performance</span><strong className={totals.profit - totals.loss >= 0 ? "positive" : "negative"}>{totals.profit - totals.loss >= 0 ? "+" : "−"}{money.format(Math.abs(totals.profit - totals.loss))}</strong></div></div>
+      <div className="performance-total"><div className="verified-total"><strong>{filteredResults.length}</strong><div><b>Verified closed results</b><span>{selectedScope}</span></div></div><div className="performance-grid"><a className="loss-panel result-filter" href={resultListHref("loss")}><strong>{performanceCounts.losses}</strong><span>Losing results</span></a><article className="win-rate"><div className="rate-ring" style={{ "--win-rate": `${winRate * 3.6}deg` } as CSSProperties}><strong>{winRate.toFixed(0)}%</strong><span>Win rate</span></div></article><a className="gain-panel result-filter" href={resultListHref("win")}><strong>{performanceCounts.wins}</strong><span>Winning results</span></a><article className="loss-panel"><strong>{money.format(totals.loss)}</strong><span>Total loss</span></article><article className="gain-panel"><strong>{money.format(totals.profit)}</strong><span>Total profit</span></article></div><div className="net-total"><span>Net performance</span><strong className={totals.profit - totals.loss >= 0 ? "positive" : "negative"}>{totals.profit - totals.loss >= 0 ? "+" : "−"}{money.format(Math.abs(totals.profit - totals.loss))}</strong></div></div>
       {botPerformance.length === 0 ? <p className="chart-empty">Add trade results to see each bot's priority.</p> : <><div className="priority-chart">
         {botPerformance.map((bot, index) => <button className={`priority-row${botFilter === bot.name ? " selected" : ""}`} key={bot.name} type="button" onClick={() => setBotFilter((current) => current === bot.name ? "all" : bot.name)} aria-pressed={botFilter === bot.name} aria-label={botFilter === bot.name ? `Clear ${bot.name} filter` : `Filter results by ${bot.name}`}><div className="bot-label"><div className="bot-copy"><div className="bot-name"><b>{bot.name}</b><span className={index === 0 && bot.net > 0 ? "priority high" : bot.net > 0 ? "priority standard" : "priority review"}>{index === 0 && bot.net > 0 ? "High priority" : bot.net > 0 ? "Standard" : "Review"}</span></div><span className="bot-figures"><i className="positive">Profit {money.format(bot.profit)}</i><i className="negative">Loss {money.format(bot.loss)}</i></span></div></div><div className="bar-track"><div className={bot.net >= 0 ? "bot-bar positive-bar" : "bot-bar negative-bar"} style={{ width: `${(Math.abs(bot.net) / Math.max(...botPerformance.map((item) => Math.abs(item.net)), 1)) * 100}%` }} /></div><strong className={bot.net >= 0 ? "positive" : "negative"}>{bot.net >= 0 ? "+" : "−"}{money.format(Math.abs(bot.net))}<small>{bot.opening ? `${bot.net >= 0 ? "+" : ""}${((bot.net / bot.opening) * 100).toFixed(2)}%` : "—"}</small></strong></button>)}
       </div></>}

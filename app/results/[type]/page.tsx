@@ -16,6 +16,12 @@ export default function ResultListPage() {
   const title = isWinning ? "Winning results" : "Losing results";
   const [results, setResults] = useState<Result[]>([]);
   const [error, setError] = useState("");
+  const [filters, setFilters] = useState({ bot: "all", time: "all", start: "", end: "" });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setFilters({ bot: params.get("bot") ?? "all", time: params.get("time") ?? "all", start: params.get("start") ?? "", end: params.get("end") ?? "" });
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -27,8 +33,21 @@ export default function ResultListPage() {
   }, []);
 
   const matchingResults = useMemo(() => results
-    .filter((row) => isWinning ? row.profit - row.loss > 0 : row.profit - row.loss < 0)
-    .sort((a, b) => isWinning ? (b.profit - b.loss) - (a.profit - a.loss) : (a.profit - a.loss) - (b.profit - b.loss)), [results, isWinning]);
+    .filter((row) => {
+      if (filters.bot !== "all" && row.botName !== filters.bot) return false;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      const start = new Date(today);
+      if (filters.time === "weekly") start.setDate(today.getDate() - 6);
+      if (filters.time === "monthly") start.setDate(today.getDate() - 29);
+      if (filters.time === "yearly") start.setDate(today.getDate() - 364);
+      if (filters.time === "custom" && ((filters.start && row.date < filters.start) || (filters.end && row.date > filters.end))) return false;
+      if (filters.time === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); if (row.date !== dateKey(yesterday)) return false; }
+      if (filters.time === "daily" && row.date !== dateKey(today)) return false;
+      if (["weekly", "monthly", "yearly"].includes(filters.time) && new Date(`${row.date}T00:00:00`) < start) return false;
+      return isWinning ? row.profit - row.loss > 0 : row.profit - row.loss < 0;
+    })
+    .sort((a, b) => isWinning ? (b.profit - b.loss) - (a.profit - a.loss) : (a.profit - a.loss) - (b.profit - b.loss)), [results, isWinning, filters]);
 
   return <main>
     <section className="hero"><div><p className="eyebrow">TRADE RESULTS</p><h1>{title}</h1><p className="subhead">{matchingResults.length} closed trades</p></div><Link className="primary" href="/">← Back to dashboard</Link></section>

@@ -239,7 +239,7 @@ export default function Home() {
         <label>Bot Name<input name="botName" defaultValue={editing?.botName} placeholder="e.g. EmircaleX Gold" required /></label>
         <label>Opening Balance<input name="opening" type="number" value={balances.opening} onChange={(event) => setBalances((current) => ({ ...current, opening: event.target.value }))} min="0" step="0.01" placeholder="0.00" required /></label>
         <label>Closing Balance<input name="closing" type="number" value={balances.closing} onChange={(event) => setBalances((current) => ({ ...current, closing: event.target.value }))} min="0" step="0.01" placeholder="0.00" required /></label>
-        <label>Trades Summary<input name="trades" defaultValue={editing?.trades} placeholder="e.g. 2 Trades (1 TP, 1 BE)" required /></label>
+        <label>Trades Summary<input name="trades" defaultValue={editing?.trades} placeholder="e.g. 2 Trades (1 TP, 1 BE)" /></label>
         <label>Net Profit<input name="profit" type="number" value={Math.max(balanceDifference, 0).toFixed(2)} readOnly /></label>
         <label>Total Loss<input name="loss" type="number" value={Math.max(-balanceDifference, 0).toFixed(2)} readOnly /></label>
         <button className="primary submit" type="submit">{editing ? "Update result" : "Save result"}</button>

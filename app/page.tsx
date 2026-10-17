@@ -15,6 +15,9 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env
 export default function Home() {
   const [results, setResults] = useState<Result[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [balances, setBalances] = useState({ opening: "", closing: "" });
+  const balanceDifference = balances.opening !== "" && balances.closing !== ""
+    ? Math.round((Number(balances.closing) - Number(balances.opening)) * 100) / 100 : 0;
   const [editing, setEditing] = useState<Result | null>(null);
   const [botFilter, setBotFilter] = useState("all");
   const [timeFilter, setTimeFilter] = useState("all");
@@ -156,19 +159,23 @@ export default function Home() {
 
   async function addResult(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const opening = numberValue(data.get("opening"));
+    const closing = numberValue(data.get("closing"));
+    const difference = Math.round((closing - opening) * 100) / 100;
     const row: Result = {
       id: editing?.id ?? crypto.randomUUID(), date: String(data.get("date")), botName: String(data.get("botName")).trim(),
-      trades: String(data.get("trades")).trim(), opening: numberValue(data.get("opening")),
-      profit: numberValue(data.get("profit")), loss: numberValue(data.get("loss")),
-      deposit: numberValue(data.get("deposit")), withdraw: numberValue(data.get("withdraw")),
-      closing: numberValue(data.get("closing"))
+      trades: String(data.get("trades")).trim(), opening, closing,
+      profit: Math.max(difference, 0), loss: Math.max(-difference, 0),
+      deposit: editing?.deposit ?? 0, withdraw: editing?.withdraw ?? 0
     };
     const databaseRow = { trade_date: row.date, bot_name: row.botName, trades: row.trades, opening: row.opening, closing: row.closing, profit: row.profit, loss: row.loss, deposit: row.deposit, withdraw: row.withdraw };
     const { error: saveError } = editing ? await supabase.from("trade_results").update(databaseRow).eq("id", row.id) : await supabase.from("trade_results").insert(databaseRow);
     if (saveError) { setError("Could not save the result. Please sign in as admin and try again."); return; }
     setResults((current) => editing ? current.map((item) => item.id === editing.id ? row : item) : [row, ...current]);
-    event.currentTarget.reset();
+    form.reset();
+    setBalances({ opening: "", closing: "" });
     setEditing(null);
     setShowForm(false);
   }
@@ -189,6 +196,7 @@ export default function Home() {
   async function signOut() { await supabase.auth.signOut(); setIsAdmin(false); setShowForm(false); }
 
   function editResult(row: Result) {
+    setBalances({ opening: String(row.opening), closing: String(row.closing ?? row.opening + row.profit - row.loss + row.deposit - row.withdraw) });
     setEditing(row);
     setShowForm(true);
   }
@@ -205,7 +213,7 @@ export default function Home() {
   const filters = <div className="filters"><fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">{[{ value: "all", label: "All time" }, { value: "yesterday", label: "Recent" }, { value: "custom", label: "Custom" }, { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" }, { value: "yearly", label: "Yearly" }].map(({ value, label }) => <button className={timeFilter === value ? "active" : ""} key={value} type="button" aria-pressed={timeFilter === value} onClick={() => setTimeFilter(value)}>{label}</button>)}</div><div className="day-navigation"><span>Browse individual days</span><button type="button" onClick={() => browseDay(-1)}>← Previous day</button><button type="button" onClick={() => browseDay(1)}>Next day →</button></div></fieldset>{timeFilter === "custom" && <div className="custom-date-range"><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</div>;
 
   return <main className={`${theme}-theme`}>
-    <section className="hero"><div className="hero-copy"><div className="hero-top"><p className="eyebrow">TRADING PERFORMANCE</p><div className="hero-actions"><button className="theme-toggle" type="button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀" : "◐"}</button><button className="primary" onClick={() => isAdmin ? (setEditing(null), setShowForm((visible) => !visible)) : setLoginOpen(true)}>{isAdmin ? (showForm ? "Close form" : "+ Add daily result") : "Admin Login"}</button></div></div><h1>eMiracle <span>X</span> Bots</h1><p className="subhead">Daily results, clearly tracked.</p></div></section>
+    <section className="hero"><div className="hero-copy"><div className="hero-top"><p className="eyebrow">TRADING PERFORMANCE</p><div className="hero-actions"><button className="theme-toggle" type="button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀" : "◐"}</button><button className="primary" onClick={() => isAdmin ? (setEditing(null), setBalances({ opening: "", closing: "" }), setShowForm((visible) => !visible)) : setLoginOpen(true)}>{isAdmin ? (showForm ? "Close form" : "+ Add daily result") : "Admin Login"}</button></div></div><h1>eMiracle <span>X</span> Bots</h1><p className="subhead">Daily results, clearly tracked.</p></div></section>
 
     {error && <p className="notice">{error}</p>}
     {loginOpen && <section className="login-card"><h2>Admin sign in</h2><form onSubmit={signIn}><input name="email" type="email" placeholder="Email" required /><input name="password" type="password" placeholder="Password" required /><button className="primary">Sign in</button></form></section>}
@@ -224,23 +232,21 @@ export default function Home() {
       <form key={editing?.id ?? "new"} onSubmit={addResult}>
         <label>Date<input name="date" type="date" defaultValue={editing?.date} required /></label>
         <label>Bot Name<input name="botName" defaultValue={editing?.botName} placeholder="e.g. EmircaleX Gold" required /></label>
-        <label>Opening Balance<input name="opening" type="number" defaultValue={editing?.opening} min="0" step="0.01" placeholder="0.00" required /></label>
-        <label>Closing Balance<input name="closing" type="number" defaultValue={editing?.closing} min="0" step="0.01" placeholder="0.00" required /></label>
+        <label>Opening Balance<input name="opening" type="number" value={balances.opening} onChange={(event) => setBalances((current) => ({ ...current, opening: event.target.value }))} min="0" step="0.01" placeholder="0.00" required /></label>
+        <label>Closing Balance<input name="closing" type="number" value={balances.closing} onChange={(event) => setBalances((current) => ({ ...current, closing: event.target.value }))} min="0" step="0.01" placeholder="0.00" required /></label>
         <label>Trades Summary<input name="trades" defaultValue={editing?.trades} placeholder="e.g. 2 Trades (1 TP, 1 BE)" required /></label>
-        <label>Net Profit<input name="profit" type="number" defaultValue={editing?.profit} min="0" step="0.01" placeholder="0.00" /></label>
-        <label>Total Loss<input name="loss" type="number" defaultValue={editing?.loss} min="0" step="0.01" placeholder="0.00" /></label>
-        <label>Deposit<input name="deposit" type="number" defaultValue={editing?.deposit} min="0" step="0.01" placeholder="0.00" /></label>
-        <label>Withdraw<input name="withdraw" type="number" defaultValue={editing?.withdraw} min="0" step="0.01" placeholder="0.00" /></label>
+        <label>Net Profit<input name="profit" type="number" value={Math.max(balanceDifference, 0).toFixed(2)} readOnly /></label>
+        <label>Total Loss<input name="loss" type="number" value={Math.max(-balanceDifference, 0).toFixed(2)} readOnly /></label>
         <button className="primary submit" type="submit">{editing ? "Update result" : "Save result"}</button>
       </form>
     </section>}
 
     <section className="table-card"><div className="table-title"><div><p className="eyebrow">TRADE LOG</p><h2>Trade results for {tableScope}</h2></div><span>{visibleResults.length} entries · {hasActiveFilter ? selectedScope : "Latest day"}</span></div>
-      <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Return %</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th><th>Deposit</th><th>Withdraw</th><th></th></tr></thead>
-      <tbody>{filteredResults.length === 0 ? <tr><td className="empty" colSpan={11}>No matching trade results found for {selectedScope}.</td></tr> : visibleResults.map((row) => {
+      <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Return %</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th><th></th></tr></thead>
+      <tbody>{filteredResults.length === 0 ? <tr><td className="empty" colSpan={9}>No matching trade results found for {selectedScope}.</td></tr> : visibleResults.map((row) => {
         const closing = row.closing ?? row.opening + row.profit - row.loss + row.deposit - row.withdraw;
         const percentage = row.opening ? ((row.profit - row.loss) / row.opening) * 100 : 0;
-        return <tr key={row.id}><td>{formatDate(row.date)}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{money.format(row.deposit)}</td><td>{money.format(row.withdraw)}</td><td>{isAdmin && <><button className="edit" onClick={() => editResult(row)}>Edit</button><button className="delete" onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
+        return <tr key={row.id}><td>{formatDate(row.date)}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{isAdmin && <><button className="edit" onClick={() => editResult(row)}>Edit</button><button className="delete" onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
       })}</tbody></table></div>
       {!hasActiveFilter && resultDates.length > 0 && <nav className="pagination" aria-label="Daily trade results navigation">
         <button type="button" onClick={() => setDayIndex((current) => current + 1)} disabled={dayIndex === resultDates.length - 1}>← Previous day</button>

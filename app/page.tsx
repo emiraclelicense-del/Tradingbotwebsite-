@@ -2,6 +2,7 @@
 
 import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { BotStrategy, matchesStrategy, strategyLabels } from "./bot-strategy";
 
 type Result = {
   id: string; date: string; botName: string; trades: string; opening: number;
@@ -25,6 +26,7 @@ export default function Home() {
     ? Math.round((Number(balances.closing) - Number(balances.opening)) * 100) / 100 : 0;
   const [editing, setEditing] = useState<Result | null>(null);
   const [botFilter, setBotFilter] = useState("all");
+  const [strategyFilter, setStrategyFilter] = useState<BotStrategy>("all");
   const [timeFilter, setTimeFilter] = useState("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -56,6 +58,7 @@ export default function Home() {
     if (timeFilter === "monthly") start.setDate(today.getDate() - 29);
     if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
     return results.filter((row) => {
+      if (!matchesStrategy(row.botName, strategyFilter)) return false;
       if (botFilter !== "all" && row.botName !== botFilter) return false;
       if (timeFilter === "all") return true;
       if (timeFilter === "custom") return (!customStart || row.date >= customStart) && (!customEnd || row.date <= customEnd);
@@ -63,7 +66,7 @@ export default function Home() {
       if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return row.date === dateKey(yesterday); }
       return new Date(`${row.date}T00:00:00`) >= start;
     });
-  }, [results, botFilter, timeFilter, customStart, customEnd]);
+  }, [results, botFilter, strategyFilter, timeFilter, customStart, customEnd]);
   const filteredResults = scopedResults;
 
   const sortedFilteredResults = useMemo(() => [...filteredResults].sort((a, b) => {
@@ -94,10 +97,11 @@ export default function Home() {
     return rangeLabel(start, today);
   }, [timeFilter, customStart, customEnd]);
   const baseScope = botFilter === "all" ? selectedPeriod : `${botFilter} · ${selectedPeriod}`;
-  const selectedScope = baseScope;
+  const selectedScope = strategyFilter === "all" ? baseScope : `${strategyLabels[strategyFilter]} · ${baseScope}`;
   const hasActiveFilter = botFilter !== "all" || timeFilter !== "all";
   const resultListHref = (type: "win" | "loss") => {
     const params = new URLSearchParams({ time: timeFilter });
+    if (strategyFilter !== "all") params.set("strategy", strategyFilter);
     if (botFilter !== "all") params.set("bot", botFilter);
     if (customStart) params.set("start", customStart);
     if (customEnd) params.set("end", customEnd);
@@ -106,11 +110,11 @@ export default function Home() {
   const resultDates = useMemo(() => [...new Set(sortedFilteredResults.map((row) => row.date))], [sortedFilteredResults]);
   const tableDate = resultDates[dayIndex] ?? "";
   const visibleResults = hasActiveFilter ? sortedFilteredResults : sortedFilteredResults.filter((row) => row.date === tableDate);
-  const tableScope = hasActiveFilter ? selectedScope : (tableDate ? formatDate(tableDate) : "Latest day");
+  const tableScope = hasActiveFilter ? selectedScope : `${strategyFilter === "all" ? "" : `${strategyLabels[strategyFilter]} · `}${tableDate ? formatDate(tableDate) : "Latest day"}`;
 
   useEffect(() => {
     setDayIndex(0);
-  }, [botFilter, timeFilter, customStart, customEnd]);
+  }, [botFilter, strategyFilter, timeFilter, customStart, customEnd]);
 
   useEffect(() => {
     if (dayIndex >= resultDates.length) setDayIndex(Math.max(resultDates.length - 1, 0));
@@ -223,6 +227,12 @@ export default function Home() {
     {error && <p className="notice">{error}</p>}
     {loginOpen && <section className="login-card"><h2>Admin sign in</h2><form onSubmit={signIn}><input name="email" type="email" placeholder="Email" required /><input name="password" type="password" placeholder="Password" required /><button className="primary">Sign in</button></form></section>}
     {isAdmin && <button className="signout" onClick={signOut}>Sign out of admin</button>}
+
+    <section className="strategy-filter" aria-label="Bot strategy filter">
+      <fieldset className="time-filter"><legend>Bot Strategy</legend><div className="time-filter-buttons">
+        {(["all", "ob", "trend"] as const).map((strategy) => <button key={strategy} type="button" className={strategyFilter === strategy ? "active" : ""} aria-pressed={strategyFilter === strategy} onClick={() => { setStrategyFilter(strategy); setBotFilter("all"); }}>{strategyLabels[strategy]}</button>)}
+      </div></fieldset>
+    </section>
 
     <section className="stats" aria-label="Performance summary">
       <article><span>Initial balance</span><strong>{money.format(initialBalance)}</strong></article>

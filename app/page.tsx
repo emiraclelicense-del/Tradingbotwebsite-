@@ -9,6 +9,11 @@ type Result = {
 };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const yesterdayDate = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 const numberValue = (value: FormDataEntryValue | null) => Math.max(0, Number(value) || 0);
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);
 
@@ -230,7 +235,7 @@ export default function Home() {
 
     {showForm && <section className="form-card"><div><p className="eyebrow">{editing ? "EDIT ENTRY" : "NEW ENTRY"}</p><h2>{editing ? "Edit daily trade result" : "Add daily trade result"}</h2></div>
       <form key={editing?.id ?? "new"} onSubmit={addResult}>
-        <label>Date<input name="date" type="date" defaultValue={editing?.date} required /></label>
+        <label>Date<input name="date" type="date" defaultValue={editing?.date ?? yesterdayDate()} required /></label>
         <label>Bot Name<input name="botName" defaultValue={editing?.botName} placeholder="e.g. EmircaleX Gold" required /></label>
         <label>Opening Balance<input name="opening" type="number" value={balances.opening} onChange={(event) => setBalances((current) => ({ ...current, opening: event.target.value }))} min="0" step="0.01" placeholder="0.00" required /></label>
         <label>Closing Balance<input name="closing" type="number" value={balances.closing} onChange={(event) => setBalances((current) => ({ ...current, closing: event.target.value }))} min="0" step="0.01" placeholder="0.00" required /></label>

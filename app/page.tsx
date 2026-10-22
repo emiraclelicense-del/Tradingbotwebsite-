@@ -230,7 +230,7 @@ export default function Home() {
 
     <section className="strategy-filter" aria-label="Bot strategy filter">
       <fieldset className="time-filter"><legend>Bot Strategy</legend><div className="time-filter-buttons">
-        {(["all", "ob", "trend"] as const).map((strategy) => <button key={strategy} type="button" className={strategyFilter === strategy ? "active" : ""} aria-pressed={strategyFilter === strategy} onClick={() => { setStrategyFilter(strategy); setBotFilter("all"); }}>{strategyLabels[strategy]}</button>)}
+        {(Object.keys(strategyLabels) as BotStrategy[]).map((strategy) => <button key={strategy} type="button" className={strategyFilter === strategy ? "active" : ""} aria-pressed={strategyFilter === strategy} onClick={() => { setStrategyFilter(strategy); setBotFilter("all"); }}>{strategyLabels[strategy]}</button>)}
       </div></fieldset>
     </section>
 

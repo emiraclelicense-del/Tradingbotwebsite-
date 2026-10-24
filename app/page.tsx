@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { BotStrategy, matchesStrategy, strategyLabels } from "./bot-strategy";
 
@@ -32,6 +32,9 @@ export default function Home() {
   const [customEnd, setCustomEnd] = useState("");
   const [dayIndex, setDayIndex] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const pendingHistorySelection = useRef<string[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -110,6 +113,12 @@ export default function Home() {
   const resultDates = useMemo(() => [...new Set(sortedFilteredResults.map((row) => row.date))], [sortedFilteredResults]);
   const tableDate = resultDates[dayIndex] ?? "";
   const visibleResults = hasActiveFilter ? sortedFilteredResults : sortedFilteredResults.filter((row) => row.date === tableDate);
+  const selectedVisibleIds = visibleResults.filter((row) => selectedIds.includes(row.id)).map((row) => row.id);
+  const allVisibleSelected = visibleResults.length > 0 && selectedVisibleIds.length === visibleResults.length;
+  useEffect(() => {
+    setSelectedIds(pendingHistorySelection.current ?? []);
+    pendingHistorySelection.current = null;
+  }, [botFilter, strategyFilter, timeFilter, customStart, customEnd, dayIndex, isAdmin]);
   const tableScope = hasActiveFilter ? selectedScope : `${strategyFilter === "all" ? "" : `${strategyLabels[strategyFilter]} · `}${tableDate ? formatDate(tableDate) : "Latest day"}`;
 
   useEffect(() => {
@@ -190,10 +199,45 @@ export default function Home() {
   }
 
   async function removeResult(id: string) {
+    if (deleting) return;
     if (!confirm("Delete this result?")) return;
     const { error: deleteError } = await supabase.from("trade_results").delete().eq("id", id);
     if (deleteError) { setError("Could not delete the result."); return; }
     setResults((current) => current.filter((row) => row.id !== id));
+    setSelectedIds((current) => current.filter((selectedId) => selectedId !== id));
+  }
+
+  function selectAllHistory() {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const ids = results.filter((row) => row.date <= today).map((row) => row.id);
+    const filtersWillChange = botFilter !== "all" || strategyFilter !== "all" || timeFilter !== "custom" || customStart !== "" || customEnd !== today || dayIndex !== 0;
+    if (filtersWillChange) pendingHistorySelection.current = ids;
+    setBotFilter("all");
+    setStrategyFilter("all");
+    setTimeFilter("custom");
+    setCustomStart("");
+    setCustomEnd(today);
+    setDayIndex(0);
+    setSelectedIds(ids);
+  }
+
+  async function removeSelectedResults() {
+    if (!isAdmin || deleting || selectedVisibleIds.length === 0) return;
+    const ids = [...selectedVisibleIds];
+    if (!confirm(`Delete ${ids.length} selected result${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const { error: deleteError } = await supabase.from("trade_results").delete().in("id", ids);
+      if (deleteError) { setError("Could not delete the selected results. Please try again."); return; }
+      setResults((current) => current.filter((row) => !ids.includes(row.id)));
+      setSelectedIds((current) => current.filter((id) => !ids.includes(id)));
+      setEditing((current) => current && ids.includes(current.id) ? null : current);
+    } catch {
+      setError("Could not delete the selected results. Please try again.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
@@ -257,11 +301,12 @@ export default function Home() {
     </section>}
 
     <section className="table-card"><div className="table-title"><div><p className="eyebrow">TRADE LOG</p><h2>Trade results for {tableScope}</h2></div><span>{visibleResults.length} entries · {hasActiveFilter ? selectedScope : "Latest day"}</span></div>
+      {isAdmin && <div className="bulk-actions"><button type="button" disabled={deleting || results.length === 0} onClick={selectAllHistory}>Select all history (through today)</button><label><input type="checkbox" checked={allVisibleSelected} ref={(input) => { if (input) input.indeterminate = selectedVisibleIds.length > 0 && !allVisibleSelected; }} disabled={deleting || visibleResults.length === 0} onChange={(event) => setSelectedIds(event.target.checked ? visibleResults.map((row) => row.id) : [])} /> Select all displayed results</label><span>{selectedVisibleIds.length} selected</span><button type="button" disabled={deleting || selectedVisibleIds.length === 0} onClick={removeSelectedResults}>{deleting ? "Deleting…" : "Delete selected"}</button></div>}
       <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Return %</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th><th></th></tr></thead>
       <tbody>{filteredResults.length === 0 ? <tr><td className="empty" colSpan={9}>No matching trade results found for {selectedScope}.</td></tr> : visibleResults.map((row) => {
         const closing = row.closing ?? row.opening + row.profit - row.loss + row.deposit - row.withdraw;
         const percentage = row.opening ? ((row.profit - row.loss) / row.opening) * 100 : 0;
-        return <tr key={row.id}><td>{formatDate(row.date)}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{isAdmin && <><button className="edit" onClick={() => editResult(row)}>Edit</button><button className="delete" onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
+        return <tr key={row.id}><td>{formatDate(row.date)}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{isAdmin && <><input className="result-checkbox" type="checkbox" aria-label={`Select ${row.botName} result for ${row.date}`} checked={selectedIds.includes(row.id)} disabled={deleting} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, row.id] : current.filter((id) => id !== row.id))} /><button className="edit" disabled={deleting} onClick={() => editResult(row)}>Edit</button><button className="delete" disabled={deleting} onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
       })}</tbody></table></div>
       {!hasActiveFilter && resultDates.length > 0 && <nav className="pagination" aria-label="Daily trade results navigation">
         <button type="button" onClick={() => setDayIndex((current) => current + 1)} disabled={dayIndex === resultDates.length - 1}>← Previous day</button>

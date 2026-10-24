@@ -210,11 +210,9 @@ export default function Home() {
   function selectAllHistory() {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const ids = results.filter((row) => row.date <= today).map((row) => row.id);
-    const filtersWillChange = botFilter !== "all" || strategyFilter !== "all" || timeFilter !== "custom" || customStart !== "" || customEnd !== today || dayIndex !== 0;
+    const ids = results.filter((row) => row.date <= today && matchesStrategy(row.botName, strategyFilter) && (botFilter === "all" || row.botName === botFilter)).map((row) => row.id);
+    const filtersWillChange = timeFilter !== "custom" || customStart !== "" || customEnd !== today || dayIndex !== 0;
     if (filtersWillChange) pendingHistorySelection.current = ids;
-    setBotFilter("all");
-    setStrategyFilter("all");
     setTimeFilter("custom");
     setCustomStart("");
     setCustomEnd(today);

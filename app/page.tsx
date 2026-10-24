@@ -261,6 +261,21 @@ export default function Home() {
     setCustomStart(date); setCustomEnd(date); setTimeFilter("custom");
   }
 
+  function showDateRange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const start = String(data.get("from"));
+    const end = String(data.get("to"));
+    const endInput = form.elements.namedItem("to") as HTMLInputElement;
+    endInput.setCustomValidity(start > end ? "To date must be on or after From date." : "");
+    if (!form.reportValidity()) return;
+    setCustomStart(start);
+    setCustomEnd(end);
+    setTimeFilter("custom");
+    setDayIndex(0);
+  }
+
   const filters = <div className="filters"><fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">{[{ value: "all", label: "All time" }, { value: "yesterday", label: "Recent" }, { value: "custom", label: "Custom" }, { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" }, { value: "yearly", label: "Yearly" }].map(({ value, label }) => <button className={timeFilter === value ? "active" : ""} key={value} type="button" aria-pressed={timeFilter === value} onClick={() => setTimeFilter(value)}>{label}</button>)}</div><div className="day-navigation"><span>Browse individual days</span><button type="button" onClick={() => browseDay(-1)}>← Previous day</button><button type="button" onClick={() => browseDay(1)}>Next day →</button></div></fieldset>{timeFilter === "custom" && <div className="custom-date-range"><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</div>;
 
   return <main className={`${theme}-theme`}>
@@ -311,6 +326,12 @@ export default function Home() {
         <span>{tableScope} · Day {dayIndex + 1} of {resultDates.length}</span>
         <button type="button" onClick={() => setDayIndex((current) => current - 1)} disabled={dayIndex === 0}>Next day →</button>
       </nav>}
+      <form className="trade-date-range" key={`${customStart}:${customEnd}`} onSubmit={showDateRange} aria-label="Show trade results by date range">
+        <label>From<input name="from" type="date" defaultValue={customStart} required onChange={(event) => { const end = event.currentTarget.form?.elements.namedItem("to") as HTMLInputElement | null; end?.setCustomValidity(""); }} /></label>
+        <label>To<input name="to" type="date" defaultValue={customEnd} required onChange={(event) => event.currentTarget.setCustomValidity("")} /></label>
+        <button className="primary" type="submit">Show results</button>
+        <span>Shows results for the selected bot and strategy filters.</span>
+      </form>
     </section>
 
     <section className="priority-card" aria-labelledby="bot-priority-heading"><div className="filter-area" aria-label="Trade result filters">{filters}</div>

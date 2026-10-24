@@ -207,14 +207,26 @@ export default function Home() {
     setSelectedIds((current) => current.filter((selectedId) => selectedId !== id));
   }
 
+  const now = new Date();
+  const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const historyRows = results.filter((row) => row.date <= todayDate && matchesStrategy(row.botName, strategyFilter) && (botFilter === "all" || row.botName === botFilter));
+  const firstHistoryDate = historyRows.reduce((first, row) => row.date < first ? row.date : first, todayDate);
+
+  function showAllHistory() {
+    setTimeFilter("custom");
+    setCustomStart(firstHistoryDate);
+    setCustomEnd(todayDate);
+    setDayIndex(0);
+  }
+
   function selectAllHistory() {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const ids = results.filter((row) => row.date <= today && matchesStrategy(row.botName, strategyFilter) && (botFilter === "all" || row.botName === botFilter)).map((row) => row.id);
-    const filtersWillChange = timeFilter !== "custom" || customStart !== "" || customEnd !== today || dayIndex !== 0;
+    const filtersWillChange = timeFilter !== "custom" || customStart !== firstHistoryDate || customEnd !== today || dayIndex !== 0;
     if (filtersWillChange) pendingHistorySelection.current = ids;
     setTimeFilter("custom");
-    setCustomStart("");
+    setCustomStart(firstHistoryDate);
     setCustomEnd(today);
     setDayIndex(0);
     setSelectedIds(ids);
@@ -326,9 +338,10 @@ export default function Home() {
         <span>{tableScope} · Day {dayIndex + 1} of {resultDates.length}</span>
         <button type="button" onClick={() => setDayIndex((current) => current - 1)} disabled={dayIndex === 0}>Next day →</button>
       </nav>}
-      <form className="trade-date-range" key={`${customStart}:${customEnd}`} onSubmit={showDateRange} aria-label="Show trade results by date range">
-        <label>From<input name="from" type="date" defaultValue={customStart} required onChange={(event) => { const end = event.currentTarget.form?.elements.namedItem("to") as HTMLInputElement | null; end?.setCustomValidity(""); }} /></label>
-        <label>To<input name="to" type="date" defaultValue={customEnd} required onChange={(event) => event.currentTarget.setCustomValidity("")} /></label>
+      <form className="trade-date-range" key={`${strategyFilter}:${botFilter}:${firstHistoryDate}:${customStart}:${customEnd}`} onSubmit={showDateRange} aria-label="Show trade results by date range">
+        <label>From<input name="from" type="date" defaultValue={customStart || firstHistoryDate} required onChange={(event) => { const end = event.currentTarget.form?.elements.namedItem("to") as HTMLInputElement | null; end?.setCustomValidity(""); }} /></label>
+        <label>To<input name="to" type="date" defaultValue={customEnd || todayDate} required onChange={(event) => event.currentTarget.setCustomValidity("")} /></label>
+        <button className="primary" type="button" onClick={showAllHistory}>All time</button>
         <button className="primary" type="submit">Show results</button>
         <span>Shows results for the selected bot and strategy filters.</span>
       </form>

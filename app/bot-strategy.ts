@@ -1,9 +1,8 @@
-export type BotStrategy = "all" | "ob" | "confirm" | "signal" | "live";
+export type BotStrategy = "all" | "ob" | "signal" | "live";
 
 export const strategyLabels: Record<BotStrategy, string> = {
   all: "All Bots",
   ob: "OB Touch",
-  confirm: "OB Confirm",
   signal: "Signal",
   live: "Live BOT",
 };

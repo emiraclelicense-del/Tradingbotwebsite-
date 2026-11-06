@@ -4,7 +4,7 @@ export const strategyLabels: Record<BotStrategy, string> = {
   all: "All Bots",
   ob: "OB Touch",
   signal: "Signal",
-  live: "Live BOT",
+  live: "Live",
 };
 
 export function matchesStrategy(botName: string, strategy: string) {

@@ -58,7 +58,7 @@ export default function Home() {
     const start = new Date(today);
     const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
-    if (timeFilter === "monthly") start.setDate(today.getDate() - 29);
+    if (timeFilter === "monthly") start.setDate(1);
     if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
     return results.filter((row) => {
       if (!matchesStrategy(row.botName, strategyFilter)) return false;
@@ -95,7 +95,7 @@ export default function Home() {
     if (timeFilter === "daily") return formatDate(dateKey(today));
     const start = new Date(today);
     if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
-    if (timeFilter === "monthly") start.setDate(today.getDate() - 29);
+    if (timeFilter === "monthly") start.setDate(1);
     if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
     return rangeLabel(start, today);
   }, [timeFilter, customStart, customEnd]);

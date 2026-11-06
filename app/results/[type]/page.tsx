@@ -42,7 +42,7 @@ export default function ResultListPage() {
       const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       const start = new Date(today);
       if (filters.time === "weekly") start.setDate(today.getDate() - 6);
-      if (filters.time === "monthly") start.setDate(today.getDate() - 29);
+      if (filters.time === "monthly") start.setDate(1);
       if (filters.time === "yearly") start.setDate(today.getDate() - 364);
       if (filters.time === "custom" && ((filters.start && row.date < filters.start) || (filters.end && row.date > filters.end))) return false;
       if (filters.time === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); if (row.date !== dateKey(yesterday)) return false; }

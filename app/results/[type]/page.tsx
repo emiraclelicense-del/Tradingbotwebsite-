@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { matchesStrategy } from "../../bot-strategy";
+import { matchesPair, matchesStrategy } from "../../bot-strategy";
 
 type Result = { id: string; date: string; botName: string; trades: string; opening: number; closing: number; profit: number; loss: number; deposit: number; withdraw: number };
 
@@ -18,11 +18,11 @@ export default function ResultListPage() {
   const title = isWinning ? "Winning results" : "Losing results";
   const [results, setResults] = useState<Result[]>([]);
   const [error, setError] = useState("");
-  const [filters, setFilters] = useState({ bot: "all", strategy: "all", time: "all", start: "", end: "" });
+  const [filters, setFilters] = useState({ bot: "all", strategy: "all", pair: "all", time: "all", start: "", end: "" });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setFilters({ bot: params.get("bot") ?? "all", strategy: params.get("strategy") ?? "all", time: params.get("time") ?? "all", start: params.get("start") ?? "", end: params.get("end") ?? "" });
+    setFilters({ bot: params.get("bot") ?? "all", strategy: params.get("strategy") ?? "all", pair: params.get("pair") ?? "all", time: params.get("time") ?? "all", start: params.get("start") ?? "", end: params.get("end") ?? "" });
   }, []);
 
   useEffect(() => {
@@ -37,6 +37,7 @@ export default function ResultListPage() {
   const matchingResults = useMemo(() => results
     .filter((row) => {
       if (!matchesStrategy(row.botName, filters.strategy)) return false;
+      if (!matchesPair(row.botName, filters.pair)) return false;
       if (filters.bot !== "all" && row.botName !== filters.bot) return false;
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

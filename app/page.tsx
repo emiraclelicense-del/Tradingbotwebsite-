@@ -2,7 +2,7 @@
 
 import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { BotStrategy, matchesStrategy, strategyLabels } from "./bot-strategy";
+import { BotStrategy, TouchPair, matchesPair, matchesStrategy, pairLabels, strategyLabels } from "./bot-strategy";
 
 type Result = {
   id: string; date: string; botName: string; trades: string; opening: number;
@@ -27,6 +27,8 @@ export default function Home() {
   const [editing, setEditing] = useState<Result | null>(null);
   const [botFilter, setBotFilter] = useState("all");
   const [strategyFilter, setStrategyFilter] = useState<BotStrategy>("all");
+  const [pairFilter, setPairFilter] = useState<TouchPair>("all");
+  const activePair = strategyFilter === "ob" ? pairFilter : "all";
   const [timeFilter, setTimeFilter] = useState("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -62,6 +64,7 @@ export default function Home() {
     if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
     return results.filter((row) => {
       if (!matchesStrategy(row.botName, strategyFilter)) return false;
+      if (!matchesPair(row.botName, activePair)) return false;
       if (botFilter !== "all" && row.botName !== botFilter) return false;
       if (timeFilter === "all") return true;
       if (timeFilter === "custom") return (!customStart || row.date >= customStart) && (!customEnd || row.date <= customEnd);
@@ -69,7 +72,7 @@ export default function Home() {
       if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return row.date === dateKey(yesterday); }
       return new Date(`${row.date}T00:00:00`) >= start;
     });
-  }, [results, botFilter, strategyFilter, timeFilter, customStart, customEnd]);
+  }, [results, botFilter, strategyFilter, activePair, timeFilter, customStart, customEnd]);
   const filteredResults = scopedResults;
 
   const sortedFilteredResults = useMemo(() => [...filteredResults].sort((a, b) => {
@@ -100,11 +103,13 @@ export default function Home() {
     return rangeLabel(start, today);
   }, [timeFilter, customStart, customEnd]);
   const baseScope = botFilter === "all" ? selectedPeriod : `${botFilter} · ${selectedPeriod}`;
-  const selectedScope = strategyFilter === "all" ? baseScope : `${strategyLabels[strategyFilter]} · ${baseScope}`;
+  const strategyScope = strategyFilter === "all" ? "" : `${strategyLabels[strategyFilter]}${activePair === "all" ? "" : ` ${pairLabels[activePair]}`} · `;
+  const selectedScope = `${strategyScope}${baseScope}`;
   const hasActiveFilter = botFilter !== "all" || timeFilter !== "all";
   const resultListHref = (type: "win" | "loss") => {
     const params = new URLSearchParams({ time: timeFilter });
     if (strategyFilter !== "all") params.set("strategy", strategyFilter);
+    if (activePair !== "all") params.set("pair", activePair);
     if (botFilter !== "all") params.set("bot", botFilter);
     if (customStart) params.set("start", customStart);
     if (customEnd) params.set("end", customEnd);
@@ -118,12 +123,12 @@ export default function Home() {
   useEffect(() => {
     setSelectedIds(pendingHistorySelection.current ?? []);
     pendingHistorySelection.current = null;
-  }, [botFilter, strategyFilter, timeFilter, customStart, customEnd, dayIndex, isAdmin]);
-  const tableScope = hasActiveFilter ? selectedScope : `${strategyFilter === "all" ? "" : `${strategyLabels[strategyFilter]} · `}${tableDate ? formatDate(tableDate) : "Latest day"}`;
+  }, [botFilter, strategyFilter, activePair, timeFilter, customStart, customEnd, dayIndex, isAdmin]);
+  const tableScope = hasActiveFilter ? selectedScope : `${strategyScope}${tableDate ? formatDate(tableDate) : "Latest day"}`;
 
   useEffect(() => {
     setDayIndex(0);
-  }, [botFilter, strategyFilter, timeFilter, customStart, customEnd]);
+  }, [botFilter, strategyFilter, activePair, timeFilter, customStart, customEnd]);
 
   useEffect(() => {
     if (dayIndex >= resultDates.length) setDayIndex(Math.max(resultDates.length - 1, 0));
@@ -209,7 +214,7 @@ export default function Home() {
 
   const now = new Date();
   const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const historyRows = results.filter((row) => row.date <= todayDate && matchesStrategy(row.botName, strategyFilter) && (botFilter === "all" || row.botName === botFilter));
+  const historyRows = results.filter((row) => row.date <= todayDate && matchesStrategy(row.botName, strategyFilter) && matchesPair(row.botName, activePair) && (botFilter === "all" || row.botName === botFilter));
   const firstHistoryDate = historyRows.reduce((first, row) => row.date < first ? row.date : first, todayDate);
 
   function showAllHistory() {
@@ -222,7 +227,7 @@ export default function Home() {
   function selectAllHistory() {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const ids = results.filter((row) => row.date <= today && matchesStrategy(row.botName, strategyFilter) && (botFilter === "all" || row.botName === botFilter)).map((row) => row.id);
+    const ids = results.filter((row) => row.date <= today && matchesStrategy(row.botName, strategyFilter) && matchesPair(row.botName, activePair) && (botFilter === "all" || row.botName === botFilter)).map((row) => row.id);
     const filtersWillChange = timeFilter !== "custom" || customStart !== firstHistoryDate || customEnd !== today || dayIndex !== 0;
     if (filtersWillChange) pendingHistorySelection.current = ids;
     setTimeFilter("custom");
@@ -299,8 +304,11 @@ export default function Home() {
 
     <section className="strategy-filter" aria-label="Bot strategy filter">
       <fieldset className="time-filter"><legend>Bot Strategy</legend><div className="time-filter-buttons">
-        {(Object.keys(strategyLabels) as BotStrategy[]).map((strategy) => <button key={strategy} type="button" className={strategyFilter === strategy ? "active" : ""} aria-pressed={strategyFilter === strategy} onClick={() => { setStrategyFilter(strategy); setBotFilter("all"); }}>{strategyLabels[strategy]}</button>)}
+        {(Object.keys(strategyLabels) as BotStrategy[]).map((strategy) => <button key={strategy} type="button" className={strategyFilter === strategy ? "active" : ""} aria-pressed={strategyFilter === strategy} onClick={() => { setStrategyFilter(strategy); setPairFilter("all"); setBotFilter("all"); }}>{strategyLabels[strategy]}</button>)}
       </div></fieldset>
+      {strategyFilter === "ob" && <fieldset className="time-filter pair-filter"><legend>Touch Pair</legend><div className="time-filter-buttons">
+        {(Object.keys(pairLabels) as TouchPair[]).map((pair) => <button key={pair} type="button" className={pairFilter === pair ? "active" : ""} aria-pressed={pairFilter === pair} onClick={() => { setPairFilter(pair); setBotFilter("all"); }}>{pairLabels[pair]}</button>)}
+      </div></fieldset>}
     </section>
 
     <section className="stats" aria-label="Performance summary">
@@ -338,7 +346,7 @@ export default function Home() {
         <span>{tableScope} · Day {dayIndex + 1} of {resultDates.length}</span>
         <button type="button" onClick={() => setDayIndex((current) => current - 1)} disabled={dayIndex === 0}>Next day →</button>
       </nav>}
-      <form className="trade-date-range" key={`${strategyFilter}:${botFilter}:${firstHistoryDate}:${customStart}:${customEnd}`} onSubmit={showDateRange} aria-label="Show trade results by date range">
+      <form className="trade-date-range" key={`${strategyFilter}:${activePair}:${botFilter}:${firstHistoryDate}:${customStart}:${customEnd}`} onSubmit={showDateRange} aria-label="Show trade results by date range">
         <label>From<input name="from" type="date" defaultValue={customStart || firstHistoryDate} required onChange={(event) => { const end = event.currentTarget.form?.elements.namedItem("to") as HTMLInputElement | null; end?.setCustomValidity(""); }} /></label>
         <label>To<input name="to" type="date" defaultValue={customEnd || todayDate} required onChange={(event) => event.currentTarget.setCustomValidity("")} /></label>
         <button className="primary" type="button" onClick={showAllHistory}>All time</button>

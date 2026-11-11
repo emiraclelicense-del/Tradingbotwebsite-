@@ -15,3 +15,20 @@ export function matchesStrategy(botName: string, strategy: string) {
   const isTouch = /\b(?:OB|Touch)\b/i.test(botName) && !/\bConfirm\b/i.test(botName);
   return strategy === "ob" || strategy === "touch" ? isTouch : true;
 }
+
+export type TouchPair = "all" | "eur" | "xau" | "btc";
+
+export const pairLabels: Record<TouchPair, string> = {
+  all: "All Pairs",
+  eur: "EUR",
+  xau: "XAU",
+  btc: "BTC",
+};
+
+// Reads the pair from the bot name, e.g. "OB Touch XAUUSD", "Touch Gold", "Touch BTC".
+export function matchesPair(botName: string, pair: string) {
+  if (pair === "eur") return /(?:EUR|Euro)/i.test(botName);
+  if (pair === "xau") return /(?:XAU|Gold)/i.test(botName);
+  if (pair === "btc") return /(?:BTC|Bitcoin)/i.test(botName);
+  return true;
+}

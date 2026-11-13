@@ -80,10 +80,8 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   const scopedEntries = useMemo(() => entries.filter((row) => inScope(row.botName, row.date)), [entries, inScope]);
-  const timeframes = useMemo(() => {
-    const used = new Set(scopedEntries.map((row) => row.timeframe));
-    return TIMEFRAMES.filter((tf) => used.has(tf) || tf === "M10").concat([...used].filter((tf) => !TIMEFRAMES.includes(tf)));
-  }, [scopedEntries]);
+  // All standard timeframes are always selectable, plus any custom ones typed in when adding trades.
+  const timeframes = useMemo(() => TIMEFRAMES.concat([...new Set(entries.map((row) => row.timeframe))].filter((tf) => !TIMEFRAMES.includes(tf)).sort()), [entries]);
   const visibleEntries = useMemo(() => scopedEntries.filter((row) => (timeframe === "all" || row.timeframe === timeframe) && (session === "all" || row.session === session)), [scopedEntries, timeframe, session]);
   const pageCount = Math.max(Math.ceil(visibleEntries.length / PAGE_SIZE), 1);
   const pageEntries = visibleEntries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -125,7 +123,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
     }
     const databaseRow = {
       trade_date: date, bot_name: String(data.get("botName")).trim(), session: String(data.get("session")) as Session,
-      timeframe: String(data.get("timeframe")), side: String(data.get("side")) as Side, entry: String(data.get("entry")).trim(), result,
+      timeframe: String(data.get("timeframe")).trim().toUpperCase(), side: String(data.get("side")) as Side, entry: String(data.get("entry")).trim(), result,
       pips: signedPips(result, Number(data.get("pips")) || 0), proof_url: proofUrl || null,
     };
     const { data: saved, error: saveError } = await supabase.from("trade_entries").insert(databaseRow).select().single();
@@ -197,7 +195,8 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <label>Bot Name<input name="botName" list="trade-entry-bots" placeholder="e.g. OB Touch XAUUSD" required /></label>
       <datalist id="trade-entry-bots">{botNames.map((name) => <option key={name} value={name} />)}</datalist>
       <label>Session<select name="session" defaultValue={session === "all" ? currentSession() : session}>{(Object.keys(SESSION_LABELS) as Session[]).map((value) => <option key={value} value={value}>{SESSION_LABELS[value]}</option>)}</select></label>
-      <label>Timeframe<select name="timeframe" defaultValue={timeframe === "all" ? "M10" : timeframe}>{TIMEFRAMES.map((tf) => <option key={tf}>{tf}</option>)}</select></label>
+      <label>Timeframe<input name="timeframe" list="trade-entry-timeframes" defaultValue={timeframe === "all" ? "M10" : timeframe} placeholder="e.g. M10" maxLength={10} pattern="[A-Za-z0-9 ]+" title="Letters and numbers only, e.g. M10 or H1" required /></label>
+      <datalist id="trade-entry-timeframes">{timeframes.map((tf) => <option key={tf} value={tf} />)}</datalist>
       <label>Type<select name="side" defaultValue="buy"><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
       <label>Entry<input name="entry" placeholder="e.g. 4128-4132" required /></label>
       <label>Result<select name="result" defaultValue="tp"><option value="tp">TP Hit</option><option value="sl">SL Hit</option><option value="be">Breakeven</option></select></label>

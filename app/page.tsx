@@ -1,8 +1,7 @@
 "use client";
 
-import { CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "./supabase";
-import TradeEntries from "./trade-entries";
+import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { BotStrategy, TouchPair, matchesPair, matchesStrategy, pairLabels, strategyLabels } from "./bot-strategy";
 
 type Result = {
@@ -17,6 +16,7 @@ const yesterdayDate = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 const numberValue = (value: FormDataEntryValue | null) => Math.max(0, Number(value) || 0);
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);
 
 export default function Home() {
   const [results, setResults] = useState<Result[]>([]);
@@ -55,24 +55,24 @@ export default function Home() {
     document.body.dataset.theme = theme;
   }, [theme]);
 
-  const inScope = useCallback((botName: string, date: string) => {
+  const scopedResults = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const start = new Date(today);
-    const dateKey = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+    const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
     if (timeFilter === "monthly") start.setDate(1);
     if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
-    if (!matchesStrategy(botName, strategyFilter)) return false;
-    if (!matchesPair(botName, activePair)) return false;
-    if (botFilter !== "all" && botName !== botFilter) return false;
-    if (timeFilter === "all") return true;
-    if (timeFilter === "custom") return (!customStart || date >= customStart) && (!customEnd || date <= customEnd);
-    if (timeFilter === "daily") return date === dateKey(today);
-    if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return date === dateKey(yesterday); }
-    return new Date(`${date}T00:00:00`) >= start;
-  }, [botFilter, strategyFilter, activePair, timeFilter, customStart, customEnd]);
-  const scopedResults = useMemo(() => results.filter((row) => inScope(row.botName, row.date)), [results, inScope]);
-  const botNames = useMemo(() => [...new Set(results.map((row) => row.botName))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })), [results]);
+    return results.filter((row) => {
+      if (!matchesStrategy(row.botName, strategyFilter)) return false;
+      if (!matchesPair(row.botName, activePair)) return false;
+      if (botFilter !== "all" && row.botName !== botFilter) return false;
+      if (timeFilter === "all") return true;
+      if (timeFilter === "custom") return (!customStart || row.date >= customStart) && (!customEnd || row.date <= customEnd);
+      if (timeFilter === "daily") return row.date === dateKey(today);
+      if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return row.date === dateKey(yesterday); }
+      return new Date(`${row.date}T00:00:00`) >= start;
+    });
+  }, [results, botFilter, strategyFilter, activePair, timeFilter, customStart, customEnd]);
   const filteredResults = scopedResults;
 
   const sortedFilteredResults = useMemo(() => [...filteredResults].sort((a, b) => {
@@ -354,8 +354,6 @@ export default function Home() {
         <span>Shows results for the selected bot and strategy filters.</span>
       </form>
     </section>
-
-    <TradeEntries isAdmin={isAdmin} botNames={botNames} inScope={inScope} scopeLabel={selectedScope} />
 
     <section className="priority-card" aria-labelledby="bot-priority-heading"><div className="filter-area" aria-label="Trade result filters">{filters}</div>
       <div className="table-title"><div><p className="eyebrow">BOT PERFORMANCE</p><h2 id="bot-priority-heading">Bot priority graph</h2></div><span>Ranked by net profit</span></div>

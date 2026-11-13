@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { matchesPair, matchesStrategy } from "../../bot-strategy";
-import { supabase } from "../../supabase";
 
 type Result = { id: string; date: string; botName: string; trades: string; opening: number; closing: number; profit: number; loss: number; deposit: number; withdraw: number };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);
 
 export default function ResultListPage() {
   const { type } = useParams<{ type: string }>();

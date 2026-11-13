@@ -41,20 +41,3 @@ td:nth-child(4){white-space:nowrap;min-width:0;color:inherit}td:nth-child(5){whi
 
 .trade-date-range{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;padding:20px 25px;border-top:1px solid #253238}.trade-date-range label{display:flex;flex-direction:column;gap:7px;font-size:13px}.trade-date-range input{padding:10px 12px;border:1px solid #344249;border-radius:7px;background:transparent;color:inherit;font:inherit;color-scheme:dark}.trade-date-range span{flex-basis:100%;font-size:12px;color:#8d9a98}body[data-theme="light"] .trade-date-range input{color-scheme:light}
 .strategy-filter .pair-filter{margin-top:12px}
-
-/* Trade entries menu */
-.entries-card{order:4;margin-top:22px}.entries-menu{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:14px;padding:0 25px 20px}.entries-menu .time-filter{max-width:640px}.entries-menu .time-filter-buttons{grid-template-columns:repeat(auto-fit,minmax(56px,1fr))}.entries-notice{margin:0 25px 18px}
-.entries-form{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;padding:20px 25px;border-top:1px solid #253238}.entries-form label{font-size:12px;color:#b4c0bd;font-weight:700}.entries-form input,.entries-form select{display:block;width:100%;margin-top:7px;padding:12px;background:#0b1014;border:1px solid #344249;border-radius:7px;color:#eef5f3;font:14px Manrope}
-.entries-table{min-width:900px}.entries-table td:nth-child(4),.entries-table td:nth-child(5){white-space:nowrap;min-width:0;color:inherit}.pill.tf{color:#aebcb8;background:#18242a}.pill.be{color:#f3c969;background:#3a3118}
-.proof-link{display:inline-block;padding:6px 12px;border:1px solid #f39a4b;border-radius:999px;color:#f39a4b;font:700 12px Manrope;text-decoration:none}.proof-link:hover{background:#f39a4b;color:#0b1014}
-@media(max-width:760px){.entries-menu{padding:0 18px 18px}.entries-form{grid-template-columns:1fr 1fr;padding:18px}.entries-form .submit{grid-column:1/-1}}
-body[data-theme="light"] .light-theme .entries-form input,body[data-theme="light"] .light-theme .entries-form select{background:#fff;color:#13201d;border-color:#b9c8c3}body[data-theme="light"] .light-theme .entries-form label{color:#61716d}body[data-theme="light"] .light-theme .entries-form{border-color:#d9e2df}body[data-theme="light"] .light-theme .pill.tf{background:#edf3f1;color:#52635e}
-.proof-upload small{display:block;margin-top:5px;color:#8d9a98;font-weight:500}.entries-form input[type=file]{padding:9px;cursor:pointer}.proof-preview{grid-column:1/-1;max-width:260px;max-height:160px;object-fit:contain;border:1px solid #344249;border-radius:8px;background:#0b1014}
-.proof-add{cursor:pointer;border-style:dashed}.proof-add input{display:none}.proof-add.busy{opacity:.6;cursor:wait}
-/* Main menu + trade history page */
-.site-nav{display:flex;gap:6px;width:fit-content;max-width:100%;padding:5px;border:1px solid #253238;border-radius:10px;background:#0e161a;overflow-x:auto}.site-nav a{padding:9px 16px;border-radius:7px;color:#aebcb8;font:700 13px Manrope;text-decoration:none;white-space:nowrap}.site-nav a:hover{color:#70f1bb}.site-nav a.active{background:#14382c;color:#70f1bb;box-shadow:inset 0 0 0 1px #39795e}
-body[data-theme="light"] .light-theme .site-nav{background:#fff;border-color:#d9e2df}body[data-theme="light"] .light-theme .site-nav a{color:#36564d}body[data-theme="light"] .light-theme .site-nav a.active{background:#dff9ed;color:#11623c;box-shadow:inset 0 0 0 1px #35bd83}
-.history-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;margin-bottom:22px}.history-filters .time-filter-buttons{grid-template-columns:repeat(auto-fit,minmax(90px,1fr))}.history-filters .custom-date-range{margin-top:12px;justify-self:stretch}
-.history-bot{color:#c4d0cd;font-size:12px;font-weight:700}.history-bot select{display:block;width:100%;margin-top:7px;padding:11px;background:#0b1014;border:1px solid #344249;border-radius:7px;color:#eef5f3;font:13px Manrope}
-.history-filters~.entries-card{margin-top:0}
-@media(max-width:760px){.history-filters{grid-template-columns:1fr}.site-nav a{padding:8px 12px;font-size:12px}}

@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "./supabase";
+import TradeEntries from "./trade-entries";
+import { BotStrategy, TouchPair, matchesPair, matchesStrategy, pairLabels, strategyLabels } from "./bot-strategy";
 
 type Result = {
   id: string; date: string; botName: string; trades: string; opening: number;
@@ -9,20 +11,35 @@ type Result = {
 };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const yesterdayDate = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 const numberValue = (value: FormDataEntryValue | null) => Math.max(0, Number(value) || 0);
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);
 
 export default function Home() {
   const [results, setResults] = useState<Result[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [balances, setBalances] = useState({ opening: "", closing: "" });
+  const balanceDifference = balances.opening !== "" && balances.closing !== ""
+    ? Math.round((Number(balances.closing) - Number(balances.opening)) * 100) / 100 : 0;
   const [editing, setEditing] = useState<Result | null>(null);
   const [botFilter, setBotFilter] = useState("all");
+  const [strategyFilter, setStrategyFilter] = useState<BotStrategy>("all");
+  const [pairFilter, setPairFilter] = useState<TouchPair>("all");
+  const activePair = strategyFilter === "ob" ? pairFilter : "all";
   const [timeFilter, setTimeFilter] = useState("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [dayIndex, setDayIndex] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const pendingHistorySelection = useRef<string[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [error, setError] = useState("");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
     async function load() {
@@ -34,50 +51,208 @@ export default function Home() {
     load();
   }, []);
 
-  const filteredResults = useMemo(() => {
+  useEffect(() => {
+    document.body.dataset.theme = theme;
+  }, [theme]);
+
+  const inScope = useCallback((botName: string, date: string) => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const start = new Date(today);
+    const dateKey = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
     if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
-    if (timeFilter === "monthly") start.setDate(today.getDate() - 29);
-    return results.filter((row) => {
-      if (botFilter !== "all" && row.botName !== botFilter) return false;
-      if (timeFilter === "all") return true;
-      if (timeFilter === "custom") return (!customStart || row.date >= customStart) && (!customEnd || row.date <= customEnd);
-      return new Date(`${row.date}T00:00:00`) >= start;
-    });
-  }, [results, botFilter, timeFilter, customStart, customEnd]);
+    if (timeFilter === "monthly") start.setDate(1);
+    if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
+    if (!matchesStrategy(botName, strategyFilter)) return false;
+    if (!matchesPair(botName, activePair)) return false;
+    if (botFilter !== "all" && botName !== botFilter) return false;
+    if (timeFilter === "all") return true;
+    if (timeFilter === "custom") return (!customStart || date >= customStart) && (!customEnd || date <= customEnd);
+    if (timeFilter === "daily") return date === dateKey(today);
+    if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return date === dateKey(yesterday); }
+    return new Date(`${date}T00:00:00`) >= start;
+  }, [botFilter, strategyFilter, activePair, timeFilter, customStart, customEnd]);
+  const scopedResults = useMemo(() => results.filter((row) => inScope(row.botName, row.date)), [results, inScope]);
+  const botNames = useMemo(() => [...new Set(results.map((row) => row.botName))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })), [results]);
+  const filteredResults = scopedResults;
+
+  const sortedFilteredResults = useMemo(() => [...filteredResults].sort((a, b) => {
+    const dateOrder = b.date.localeCompare(a.date);
+    if (dateOrder) return dateOrder;
+    const netOrder = (b.profit - b.loss) - (a.profit - a.loss);
+    return netOrder || a.botName.localeCompare(b.botName, undefined, { numeric: true, sensitivity: "base" });
+  }), [filteredResults]);
+  const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+  const selectedPeriod = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const rangeLabel = (start: Date, end: Date) => `${formatDate(dateKey(start))} – ${formatDate(dateKey(end))}`;
+    if (timeFilter === "all") return "All time";
+    if (timeFilter === "custom") {
+      if (customStart && customEnd) return customStart === customEnd ? formatDate(customStart) : `${formatDate(customStart)} – ${formatDate(customEnd)}`;
+      if (customStart) return `From ${formatDate(customStart)}`;
+      if (customEnd) return `Up to ${formatDate(customEnd)}`;
+      return "Custom range";
+    }
+    if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return formatDate(dateKey(yesterday)); }
+    if (timeFilter === "daily") return formatDate(dateKey(today));
+    const start = new Date(today);
+    if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
+    if (timeFilter === "monthly") start.setDate(1);
+    if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
+    return rangeLabel(start, today);
+  }, [timeFilter, customStart, customEnd]);
+  const baseScope = botFilter === "all" ? selectedPeriod : `${botFilter} · ${selectedPeriod}`;
+  const strategyScope = strategyFilter === "all" ? "" : `${strategyLabels[strategyFilter]}${activePair === "all" ? "" : ` ${pairLabels[activePair]}`} · `;
+  const selectedScope = `${strategyScope}${baseScope}`;
+  const hasActiveFilter = botFilter !== "all" || timeFilter !== "all";
+  const resultListHref = (type: "win" | "loss") => {
+    const params = new URLSearchParams({ time: timeFilter });
+    if (strategyFilter !== "all") params.set("strategy", strategyFilter);
+    if (activePair !== "all") params.set("pair", activePair);
+    if (botFilter !== "all") params.set("bot", botFilter);
+    if (customStart) params.set("start", customStart);
+    if (customEnd) params.set("end", customEnd);
+    return `/results/${type}?${params.toString()}`;
+  };
+  const resultDates = useMemo(() => [...new Set(sortedFilteredResults.map((row) => row.date))], [sortedFilteredResults]);
+  const tableDate = resultDates[dayIndex] ?? "";
+  const visibleResults = hasActiveFilter ? sortedFilteredResults : sortedFilteredResults.filter((row) => row.date === tableDate);
+  const selectedVisibleIds = visibleResults.filter((row) => selectedIds.includes(row.id)).map((row) => row.id);
+  const allVisibleSelected = visibleResults.length > 0 && selectedVisibleIds.length === visibleResults.length;
+  useEffect(() => {
+    setSelectedIds(pendingHistorySelection.current ?? []);
+    pendingHistorySelection.current = null;
+  }, [botFilter, strategyFilter, activePair, timeFilter, customStart, customEnd, dayIndex, isAdmin]);
+  const tableScope = hasActiveFilter ? selectedScope : `${strategyScope}${tableDate ? formatDate(tableDate) : "Latest day"}`;
+
+  useEffect(() => {
+    setDayIndex(0);
+  }, [botFilter, strategyFilter, activePair, timeFilter, customStart, customEnd]);
+
+  useEffect(() => {
+    if (dayIndex >= resultDates.length) setDayIndex(Math.max(resultDates.length - 1, 0));
+  }, [dayIndex, resultDates.length]);
 
   const totals = useMemo(() => filteredResults.reduce((total, row) => ({
     profit: total.profit + row.profit, loss: total.loss + row.loss,
-    deposits: total.deposits + row.deposit, withdraws: total.withdraws + row.withdraw
-  }), { profit: 0, loss: 0, deposits: 0, withdraws: 0 }), [filteredResults]);
+    deposits: total.deposits + row.deposit, withdraws: total.withdraws + row.withdraw,
+    opening: total.opening + row.opening
+  }), { profit: 0, loss: 0, deposits: 0, withdraws: 0, opening: 0 }), [filteredResults]);
+  const initialBalance = useMemo(() => Object.values(filteredResults.reduce<Record<string, { date: string; opening: number }>>((balances, row) => {
+    const current = balances[row.botName];
+    if (!current || row.date < current.date) balances[row.botName] = { date: row.date, opening: row.opening };
+    return balances;
+  }, {})).reduce((sum, bot) => sum + bot.opening, 0), [filteredResults]);
+  const profitPercent = initialBalance ? ((totals.profit - totals.loss) / initialBalance) * 100 : 0;
+  const performanceCounts = useMemo(() => scopedResults.reduce((counts, row) => {
+    const net = row.profit - row.loss;
+    if (net > 0) counts.wins += 1;
+    if (net < 0) counts.losses += 1;
+    return counts;
+  }, { wins: 0, losses: 0 }), [scopedResults]);
+  const decidedResults = performanceCounts.wins + performanceCounts.losses;
+  const winRate = decidedResults ? (performanceCounts.wins / decidedResults) * 100 : 0;
 
-  const botNames = useMemo(() => [...new Set(results.map((row) => row.botName))].sort(), [results]);
+  const botPerformance = useMemo(() => Object.values(filteredResults.reduce<Record<string, { name: string; profit: number; loss: number; opening: number; initialDate: string; net: number }>>((performance, row) => {
+    const current = performance[row.botName] ?? { name: row.botName, profit: 0, loss: 0, opening: row.opening, initialDate: row.date, net: 0 };
+    current.profit += row.profit;
+    current.loss += row.loss;
+    if (row.date < current.initialDate) { current.opening = row.opening; current.initialDate = row.date; }
+    current.net += row.profit - row.loss;
+    performance[row.botName] = current;
+    return performance;
+  }, {})).sort((a, b) => b.net - a.net), [filteredResults]);
+  const cumulativeValues = botPerformance.reduce<number[]>((values, bot) => [...values, (values.at(-1) ?? 0) + bot.net], []);
+  const chartMaxValue = Math.max(...cumulativeValues, 0);
+  const chartMinValue = Math.min(...cumulativeValues, 0);
+  const chartRange = Math.max(chartMaxValue - chartMinValue, 1);
+  const chartWidth = 900;
+  const chartHeight = 360;
+  const chartLeft = 64;
+  const chartRight = 24;
+  const chartTop = 35;
+  const chartBottom = 64;
+  const chartPlotHeight = chartHeight - chartTop - chartBottom;
+  const chartPlotWidth = chartWidth - chartLeft - chartRight;
+  const chartZeroY = chartTop + (chartMaxValue / chartRange) * chartPlotHeight;
+  const chartStep = chartPlotWidth / Math.max(botPerformance.length, 1);
+  const chartPointY = (value: number) => chartTop + ((chartMaxValue - value) / chartRange) * chartPlotHeight;
+  const cumulativeChartPoints = cumulativeValues.map((value, index) => `${chartLeft + chartStep * (index + 0.5)},${chartPointY(value)}`).join(" ");
 
   async function addResult(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const opening = numberValue(data.get("opening"));
+    const closing = numberValue(data.get("closing"));
+    const difference = Math.round((closing - opening) * 100) / 100;
     const row: Result = {
       id: editing?.id ?? crypto.randomUUID(), date: String(data.get("date")), botName: String(data.get("botName")).trim(),
-      trades: String(data.get("trades")).trim(), opening: numberValue(data.get("opening")),
-      profit: numberValue(data.get("profit")), loss: numberValue(data.get("loss")),
-      deposit: numberValue(data.get("deposit")), withdraw: numberValue(data.get("withdraw")),
-      closing: numberValue(data.get("closing"))
+      trades: String(data.get("trades")).trim(), opening, closing,
+      profit: Math.max(difference, 0), loss: Math.max(-difference, 0),
+      deposit: editing?.deposit ?? 0, withdraw: editing?.withdraw ?? 0
     };
     const databaseRow = { trade_date: row.date, bot_name: row.botName, trades: row.trades, opening: row.opening, closing: row.closing, profit: row.profit, loss: row.loss, deposit: row.deposit, withdraw: row.withdraw };
     const { error: saveError } = editing ? await supabase.from("trade_results").update(databaseRow).eq("id", row.id) : await supabase.from("trade_results").insert(databaseRow);
     if (saveError) { setError("Could not save the result. Please sign in as admin and try again."); return; }
     setResults((current) => editing ? current.map((item) => item.id === editing.id ? row : item) : [row, ...current]);
-    event.currentTarget.reset();
+    form.reset();
+    setBalances({ opening: "", closing: "" });
     setEditing(null);
     setShowForm(false);
   }
 
   async function removeResult(id: string) {
+    if (deleting) return;
     if (!confirm("Delete this result?")) return;
     const { error: deleteError } = await supabase.from("trade_results").delete().eq("id", id);
     if (deleteError) { setError("Could not delete the result."); return; }
     setResults((current) => current.filter((row) => row.id !== id));
+    setSelectedIds((current) => current.filter((selectedId) => selectedId !== id));
+  }
+
+  const now = new Date();
+  const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const historyRows = results.filter((row) => row.date <= todayDate && matchesStrategy(row.botName, strategyFilter) && matchesPair(row.botName, activePair) && (botFilter === "all" || row.botName === botFilter));
+  const firstHistoryDate = historyRows.reduce((first, row) => row.date < first ? row.date : first, todayDate);
+
+  function showAllHistory() {
+    setTimeFilter("custom");
+    setCustomStart(firstHistoryDate);
+    setCustomEnd(todayDate);
+    setDayIndex(0);
+  }
+
+  function selectAllHistory() {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const ids = results.filter((row) => row.date <= today && matchesStrategy(row.botName, strategyFilter) && matchesPair(row.botName, activePair) && (botFilter === "all" || row.botName === botFilter)).map((row) => row.id);
+    const filtersWillChange = timeFilter !== "custom" || customStart !== firstHistoryDate || customEnd !== today || dayIndex !== 0;
+    if (filtersWillChange) pendingHistorySelection.current = ids;
+    setTimeFilter("custom");
+    setCustomStart(firstHistoryDate);
+    setCustomEnd(today);
+    setDayIndex(0);
+    setSelectedIds(ids);
+  }
+
+  async function removeSelectedResults() {
+    if (!isAdmin || deleting || selectedVisibleIds.length === 0) return;
+    const ids = [...selectedVisibleIds];
+    if (!confirm(`Delete ${ids.length} selected result${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const { error: deleteError } = await supabase.from("trade_results").delete().in("id", ids);
+      if (deleteError) { setError("Could not delete the selected results. Please try again."); return; }
+      setResults((current) => current.filter((row) => !ids.includes(row.id)));
+      setSelectedIds((current) => current.filter((id) => !ids.includes(id)));
+      setEditing((current) => current && ids.includes(current.id) ? null : current);
+    } catch {
+      setError("Could not delete the selected results. Please try again.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
@@ -89,50 +264,105 @@ export default function Home() {
   async function signOut() { await supabase.auth.signOut(); setIsAdmin(false); setShowForm(false); }
 
   function editResult(row: Result) {
+    setBalances({ opening: String(row.opening), closing: String(row.closing ?? row.opening + row.profit - row.loss + row.deposit - row.withdraw) });
     setEditing(row);
     setShowForm(true);
   }
 
-  return <main>
-    <section className="hero">
-      <div><p className="eyebrow">TRADING PERFORMANCE</p><h1>Emircale<span>X</span> Bot</h1><p className="subhead">Daily results, clearly tracked.</p></div>
-      <button className="primary" onClick={() => isAdmin ? (setEditing(null), setShowForm((visible) => !visible)) : setLoginOpen(true)}>{isAdmin ? (showForm ? "Close form" : "+ Add daily result") : "Admin sign in"}</button>
-    </section>
+  function browseDay(offset: number) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const selected = timeFilter === "custom" && customStart ? new Date(`${customStart}T00:00:00`) : new Date(today);
+    if (timeFilter === "yesterday") selected.setDate(selected.getDate() - 1);
+    selected.setDate(selected.getDate() + offset);
+    const date = `${selected.getFullYear()}-${String(selected.getMonth() + 1).padStart(2, "0")}-${String(selected.getDate()).padStart(2, "0")}`;
+    setCustomStart(date); setCustomEnd(date); setTimeFilter("custom");
+  }
+
+  function showDateRange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const start = String(data.get("from"));
+    const end = String(data.get("to"));
+    const endInput = form.elements.namedItem("to") as HTMLInputElement;
+    endInput.setCustomValidity(start > end ? "To date must be on or after From date." : "");
+    if (!form.reportValidity()) return;
+    setCustomStart(start);
+    setCustomEnd(end);
+    setTimeFilter("custom");
+    setDayIndex(0);
+  }
+
+  const filters = <div className="filters"><fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">{[{ value: "all", label: "All time" }, { value: "yesterday", label: "Recent" }, { value: "custom", label: "Custom" }, { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" }, { value: "yearly", label: "Yearly" }].map(({ value, label }) => <button className={timeFilter === value ? "active" : ""} key={value} type="button" aria-pressed={timeFilter === value} onClick={() => setTimeFilter(value)}>{label}</button>)}</div><div className="day-navigation"><span>Browse individual days</span><button type="button" onClick={() => browseDay(-1)}>← Previous day</button><button type="button" onClick={() => browseDay(1)}>Next day →</button></div></fieldset>{timeFilter === "custom" && <div className="custom-date-range"><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</div>;
+
+  return <main className={`${theme}-theme`}>
+    <section className="hero"><div className="hero-copy"><div className="hero-top"><p className="eyebrow">TRADING PERFORMANCE</p><div className="hero-actions"><button className="theme-toggle" type="button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀" : "◐"}</button><button className="primary" onClick={() => isAdmin ? (setEditing(null), setBalances({ opening: "", closing: "" }), setShowForm((visible) => !visible)) : setLoginOpen(true)}>{isAdmin ? (showForm ? "Close form" : "+ Add daily result") : "Admin Login"}</button></div></div><h1>eMiracle <span>X</span> Bots</h1><p className="subhead">Daily results, clearly tracked.</p></div></section>
 
     {error && <p className="notice">{error}</p>}
     {loginOpen && <section className="login-card"><h2>Admin sign in</h2><form onSubmit={signIn}><input name="email" type="email" placeholder="Email" required /><input name="password" type="password" placeholder="Password" required /><button className="primary">Sign in</button></form></section>}
     {isAdmin && <button className="signout" onClick={signOut}>Sign out of admin</button>}
 
+    <section className="strategy-filter" aria-label="Bot strategy filter">
+      <fieldset className="time-filter"><legend>Bot Strategy</legend><div className="time-filter-buttons">
+        {(Object.keys(strategyLabels) as BotStrategy[]).map((strategy) => <button key={strategy} type="button" className={strategyFilter === strategy ? "active" : ""} aria-pressed={strategyFilter === strategy} onClick={() => { setStrategyFilter(strategy); setPairFilter("all"); setBotFilter("all"); }}>{strategyLabels[strategy]}</button>)}
+      </div></fieldset>
+      {strategyFilter === "ob" && <fieldset className="time-filter pair-filter"><legend>Touch Pair</legend><div className="time-filter-buttons">
+        {(Object.keys(pairLabels) as TouchPair[]).map((pair) => <button key={pair} type="button" className={pairFilter === pair ? "active" : ""} aria-pressed={pairFilter === pair} onClick={() => { setPairFilter(pair); setBotFilter("all"); }}>{pairLabels[pair]}</button>)}
+      </div></fieldset>}
+    </section>
+
     <section className="stats" aria-label="Performance summary">
-      <article><span>Net profit</span><strong className="positive">{money.format(totals.profit - totals.loss)}</strong></article>
+      <article><span>Initial balance</span><strong>{money.format(initialBalance)}</strong></article>
+      <article><span>Results logged</span><strong>{filteredResults.length}</strong></article>
+      <article><span>Net profit percentage</span><strong className={profitPercent >= 0 ? "positive" : "negative"}>{profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%</strong></article>
       <article><span>Total profit</span><strong>{money.format(totals.profit)}</strong></article>
       <article><span>Total loss</span><strong className="negative">{money.format(totals.loss)}</strong></article>
-      <article><span>Results logged</span><strong>{filteredResults.length}</strong></article>
+      <article><span>Net profit</span><strong className="positive">{money.format(totals.profit - totals.loss)}</strong></article>
     </section>
 
     {showForm && <section className="form-card"><div><p className="eyebrow">{editing ? "EDIT ENTRY" : "NEW ENTRY"}</p><h2>{editing ? "Edit daily trade result" : "Add daily trade result"}</h2></div>
       <form key={editing?.id ?? "new"} onSubmit={addResult}>
-        <label>Date<input name="date" type="date" defaultValue={editing?.date} required /></label>
+        <label>Date<input name="date" type="date" defaultValue={editing?.date ?? yesterdayDate()} required /></label>
         <label>Bot Name<input name="botName" defaultValue={editing?.botName} placeholder="e.g. EmircaleX Gold" required /></label>
-        <label>Opening Balance<input name="opening" type="number" defaultValue={editing?.opening} min="0" step="0.01" placeholder="0.00" required /></label>
-        <label>Closing Balance<input name="closing" type="number" defaultValue={editing?.closing} min="0" step="0.01" placeholder="0.00" required /></label>
-        <label>Trades Summary<input name="trades" defaultValue={editing?.trades} placeholder="e.g. 2 Trades (1 TP, 1 BE)" required /></label>
-        <label>Net Profit<input name="profit" type="number" defaultValue={editing?.profit} min="0" step="0.01" placeholder="0.00" /></label>
-        <label>Total Loss<input name="loss" type="number" defaultValue={editing?.loss} min="0" step="0.01" placeholder="0.00" /></label>
-        <label>Deposit<input name="deposit" type="number" defaultValue={editing?.deposit} min="0" step="0.01" placeholder="0.00" /></label>
-        <label>Withdraw<input name="withdraw" type="number" defaultValue={editing?.withdraw} min="0" step="0.01" placeholder="0.00" /></label>
+        <label>Opening Balance<input name="opening" type="number" value={balances.opening} onChange={(event) => setBalances((current) => ({ ...current, opening: event.target.value }))} min="0" step="0.01" placeholder="0.00" required /></label>
+        <label>Closing Balance<input name="closing" type="number" value={balances.closing} onChange={(event) => setBalances((current) => ({ ...current, closing: event.target.value }))} min="0" step="0.01" placeholder="0.00" required /></label>
+        <label>Trades Summary<input name="trades" defaultValue={editing?.trades} placeholder="e.g. 2 Trades (1 TP, 1 BE)" /></label>
+        <label>Net Profit<input name="profit" type="number" value={Math.max(balanceDifference, 0).toFixed(2)} readOnly /></label>
+        <label>Total Loss<input name="loss" type="number" value={Math.max(-balanceDifference, 0).toFixed(2)} readOnly /></label>
         <button className="primary submit" type="submit">{editing ? "Update result" : "Save result"}</button>
       </form>
     </section>}
 
-    <section className="table-card"><div className="table-title"><div><p className="eyebrow">DAILY LOG</p><h2>Trade results</h2></div><span>{filteredResults.length} entries</span></div>
-      <div className="filters"><label>Bot Name<select value={botFilter} onChange={(event) => setBotFilter(event.target.value)}><option value="all">All bots</option>{botNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label><label>Time<select value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="all">All time</option><option value="daily">Daily (today)</option><option value="weekly">Weekly (last 7 days)</option><option value="monthly">Monthly (last 30 days)</option><option value="custom">Custom range</option></select></label>{timeFilter === "custom" && <><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></>}</div>
-      <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th><th>Deposit</th><th>Withdraw</th><th>Return %</th><th></th></tr></thead>
-      <tbody>{filteredResults.length === 0 ? <tr><td className="empty" colSpan={11}>No matching trade results found.</td></tr> : filteredResults.map((row) => {
+    <section className="table-card"><div className="table-title"><div><p className="eyebrow">TRADE LOG</p><h2>Trade results for {tableScope}</h2></div><span>{visibleResults.length} entries · {hasActiveFilter ? selectedScope : "Latest day"}</span></div>
+      {isAdmin && <div className="bulk-actions"><button type="button" disabled={deleting || results.length === 0} onClick={selectAllHistory}>Select all history (through today)</button><label><input type="checkbox" checked={allVisibleSelected} ref={(input) => { if (input) input.indeterminate = selectedVisibleIds.length > 0 && !allVisibleSelected; }} disabled={deleting || visibleResults.length === 0} onChange={(event) => setSelectedIds(event.target.checked ? visibleResults.map((row) => row.id) : [])} /> Select all displayed results</label><span>{selectedVisibleIds.length} selected</span><button type="button" disabled={deleting || selectedVisibleIds.length === 0} onClick={removeSelectedResults}>{deleting ? "Deleting…" : "Delete selected"}</button></div>}
+      <div className="table-wrap"><table><thead><tr><th>Date</th><th>Bot Name</th><th>Opening Balance</th><th>Return %</th><th>Trades</th><th>Closing Balance</th><th>Net Profit</th><th>Total Loss</th><th></th></tr></thead>
+      <tbody>{filteredResults.length === 0 ? <tr><td className="empty" colSpan={9}>No matching trade results found for {selectedScope}.</td></tr> : visibleResults.map((row) => {
         const closing = row.closing ?? row.opening + row.profit - row.loss + row.deposit - row.withdraw;
         const percentage = row.opening ? ((row.profit - row.loss) / row.opening) * 100 : 0;
-        return <tr key={row.id}><td>{new Date(`${row.date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{money.format(row.deposit)}</td><td>{money.format(row.withdraw)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{isAdmin && <><button className="edit" onClick={() => editResult(row)}>Edit</button><button className="delete" onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
+        return <tr key={row.id}><td>{formatDate(row.date)}</td><td><b>{row.botName}</b></td><td>{money.format(row.opening)}</td><td><span className={percentage >= 0 ? "pill gain" : "pill loss"}>{percentage >= 0 ? "+" : ""}{percentage.toFixed(2)}%</span></td><td>{row.trades}</td><td>{money.format(closing)}</td><td className="positive">{money.format(row.profit)}</td><td className="negative">{money.format(row.loss)}</td><td>{isAdmin && <><input className="result-checkbox" type="checkbox" aria-label={`Select ${row.botName} result for ${row.date}`} checked={selectedIds.includes(row.id)} disabled={deleting} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, row.id] : current.filter((id) => id !== row.id))} /><button className="edit" disabled={deleting} onClick={() => editResult(row)}>Edit</button><button className="delete" disabled={deleting} onClick={() => removeResult(row.id)} aria-label={`Delete ${row.date} result`}>×</button></>}</td></tr>;
       })}</tbody></table></div>
+      {!hasActiveFilter && resultDates.length > 0 && <nav className="pagination" aria-label="Daily trade results navigation">
+        <button type="button" onClick={() => setDayIndex((current) => current + 1)} disabled={dayIndex === resultDates.length - 1}>← Previous day</button>
+        <span>{tableScope} · Day {dayIndex + 1} of {resultDates.length}</span>
+        <button type="button" onClick={() => setDayIndex((current) => current - 1)} disabled={dayIndex === 0}>Next day →</button>
+      </nav>}
+      <form className="trade-date-range" key={`${strategyFilter}:${activePair}:${botFilter}:${firstHistoryDate}:${customStart}:${customEnd}`} onSubmit={showDateRange} aria-label="Show trade results by date range">
+        <label>From<input name="from" type="date" defaultValue={customStart || firstHistoryDate} required onChange={(event) => { const end = event.currentTarget.form?.elements.namedItem("to") as HTMLInputElement | null; end?.setCustomValidity(""); }} /></label>
+        <label>To<input name="to" type="date" defaultValue={customEnd || todayDate} required onChange={(event) => event.currentTarget.setCustomValidity("")} /></label>
+        <button className="primary" type="button" onClick={showAllHistory}>All time</button>
+        <button className="primary" type="submit">Show results</button>
+        <span>Shows results for the selected bot and strategy filters.</span>
+      </form>
+    </section>
+
+    <TradeEntries isAdmin={isAdmin} botNames={botNames} inScope={inScope} scopeLabel={selectedScope} />
+
+    <section className="priority-card" aria-labelledby="bot-priority-heading"><div className="filter-area" aria-label="Trade result filters">{filters}</div>
+      <div className="table-title"><div><p className="eyebrow">BOT PERFORMANCE</p><h2 id="bot-priority-heading">Bot priority graph</h2></div><span>Ranked by net profit</span></div>
+      <div className="performance-total"><div className="verified-total"><strong>{filteredResults.length}</strong><div><b>Verified closed results</b><span>{selectedScope}</span></div></div><div className="performance-grid"><a className="loss-panel result-filter" href={resultListHref("loss")}><strong>{performanceCounts.losses}</strong><span>Losing results</span></a><article className="win-rate"><div className="rate-ring" style={{ "--win-rate": `${winRate * 3.6}deg` } as CSSProperties}><strong>{winRate.toFixed(0)}%</strong><span>Win rate</span></div></article><a className="gain-panel result-filter" href={resultListHref("win")}><strong>{performanceCounts.wins}</strong><span>Winning results</span></a><article className="loss-panel"><strong>{money.format(totals.loss)}</strong><span>Total loss</span></article><article className="gain-panel"><strong>{money.format(totals.profit)}</strong><span>Total profit</span></article></div><div className="net-total"><span>Net performance</span><strong className={totals.profit - totals.loss >= 0 ? "positive" : "negative"}>{totals.profit - totals.loss >= 0 ? "+" : "−"}{money.format(Math.abs(totals.profit - totals.loss))}</strong></div></div>
+      {botPerformance.length === 0 ? <p className="chart-empty">Add trade results to see each bot's priority.</p> : <><div className="priority-chart">
+        {botPerformance.map((bot, index) => <button className={`priority-row${botFilter === bot.name ? " selected" : ""}`} key={bot.name} type="button" onClick={() => setBotFilter((current) => current === bot.name ? "all" : bot.name)} aria-pressed={botFilter === bot.name} aria-label={botFilter === bot.name ? `Clear ${bot.name} filter` : `Filter results by ${bot.name}`}><div className="bot-label"><div className="bot-copy"><div className="bot-name"><b>{bot.name}</b><span className={index === 0 && bot.net > 0 ? "priority high" : bot.net > 0 ? "priority standard" : "priority review"}>{index === 0 && bot.net > 0 ? "High priority" : bot.net > 0 ? "Standard" : "Review"}</span></div><span className="bot-figures"><i className="positive">Profit {money.format(bot.profit)}</i><i className="negative">Loss {money.format(bot.loss)}</i></span></div></div><div className="bar-track"><div className={bot.net >= 0 ? "bot-bar positive-bar" : "bot-bar negative-bar"} style={{ width: `${(Math.abs(bot.net) / Math.max(...botPerformance.map((item) => Math.abs(item.net)), 1)) * 100}%` }} /></div><strong className={bot.net >= 0 ? "positive" : "negative"}>{bot.net >= 0 ? "+" : "−"}{money.format(Math.abs(bot.net))}<small>{bot.opening ? `${bot.net >= 0 ? "+" : ""}${((bot.net / bot.opening) * 100).toFixed(2)}%` : "—"}</small></strong></button>)}
+      </div></>}
     </section>
   </main>;
 }

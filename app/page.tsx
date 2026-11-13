@@ -144,6 +144,13 @@ export default function Home() {
     if (!current || row.date < current.date) balances[row.botName] = { date: row.date, opening: row.opening };
     return balances;
   }, {})).reduce((sum, bot) => sum + bot.opening, 0), [filteredResults]);
+  // Sum of each bot's closing balance on its most recent day in the current filters.
+  const currentBalance = useMemo(() => Object.values(filteredResults.reduce<Record<string, { date: string; closing: number }>>((balances, row) => {
+    const current = balances[row.botName];
+    const closing = row.closing ?? row.opening + row.profit - row.loss + row.deposit - row.withdraw;
+    if (!current || row.date > current.date) balances[row.botName] = { date: row.date, closing };
+    return balances;
+  }, {})).reduce((sum, bot) => sum + bot.closing, 0), [filteredResults]);
   const profitPercent = initialBalance ? ((totals.profit - totals.loss) / initialBalance) * 100 : 0;
   const performanceCounts = useMemo(() => scopedResults.reduce((counts, row) => {
     const net = row.profit - row.loss;
@@ -313,6 +320,7 @@ export default function Home() {
 
     <section className="stats" aria-label="Performance summary">
       <article><span>Initial balance</span><strong>{money.format(initialBalance)}</strong></article>
+      <article><span>Current balance</span><strong className={currentBalance >= initialBalance ? "positive" : "negative"}>{money.format(currentBalance)}</strong></article>
       <article><span>Results logged</span><strong>{filteredResults.length}</strong></article>
       <article><span>Net profit percentage</span><strong className={profitPercent >= 0 ? "positive" : "negative"}>{profitPercent >= 0 ? "+" : ""}{profitPercent.toFixed(2)}%</strong></article>
       <article><span>Total profit</span><strong>{money.format(totals.profit)}</strong></article>

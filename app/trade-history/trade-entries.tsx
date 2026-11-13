@@ -6,12 +6,14 @@ import { supabase } from "../supabase";
 type Side = "buy" | "sell";
 type Outcome = "tp" | "sl" | "be";
 type Session = "asian" | "london" | "newyork";
-type TradeEntry = { id: string; date: string; botName: string; session: Session | null; timeframe: string; side: Side; entry: string; result: Outcome; pips: number; proofUrl: string };
+type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; result: Outcome; pips: number; proofUrl: string };
 
 const TIMEFRAMES = ["M1", "M5", "M10", "M15", "M30", "H1", "H4", "D1"];
 const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
 const OUTCOME_LABELS: Record<Outcome, string> = { tp: "TP Hit", sl: "SL Hit", be: "Breakeven" };
 const PAGE_SIZE = 10;
+/** Green for "with trend", red for "against trend", neutral for anything else typed. */
+const trendTone = (trend: string) => /against/i.test(trend) ? "loss" : /with/i.test(trend) ? "gain" : "tf";
 const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 const signedPips = (result: Outcome, pips: number) => result === "be" ? 0 : result === "sl" ? -Math.abs(pips) : Math.abs(pips);
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -44,7 +46,7 @@ function proofPath(url: string) {
 }
 
 const toEntry = (row: Record<string, unknown>): TradeEntry => ({
-  id: String(row.id), date: String(row.trade_date), botName: String(row.bot_name), session: (row.session as Session | null) ?? null,
+  id: String(row.id), date: String(row.trade_date), botName: String(row.bot_name), session: (row.session as Session | null) ?? null, trend: row.trend ? String(row.trend) : "",
   timeframe: String(row.timeframe), side: row.side as Side, entry: String(row.entry), result: row.result as Outcome,
   pips: Number(row.pips), proofUrl: row.proof_url ? String(row.proof_url) : "",
 });
@@ -122,7 +124,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       return;
     }
     const databaseRow = {
-      trade_date: date, bot_name: String(data.get("botName")).trim(), session: String(data.get("session")) as Session,
+      trade_date: date, bot_name: String(data.get("botName")).trim(), session: String(data.get("session")) as Session, trend: String(data.get("trend") ?? "").trim() || null,
       timeframe: String(data.get("timeframe")).trim().toUpperCase(), side: String(data.get("side")) as Side, entry: String(data.get("entry")).trim(), result,
       pips: signedPips(result, Number(data.get("pips")) || 0), proof_url: proofUrl || null,
     };
@@ -197,6 +199,8 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <label>Session<select name="session" defaultValue={session === "all" ? currentSession() : session}>{(Object.keys(SESSION_LABELS) as Session[]).map((value) => <option key={value} value={value}>{SESSION_LABELS[value]}</option>)}</select></label>
       <label>Timeframe<input name="timeframe" list="trade-entry-timeframes" defaultValue={timeframe === "all" ? "M10" : timeframe} placeholder="e.g. M10" maxLength={10} pattern="[A-Za-z0-9 ]+" title="Letters and numbers only, e.g. M10 or H1" required /></label>
       <datalist id="trade-entry-timeframes">{timeframes.map((tf) => <option key={tf} value={tf} />)}</datalist>
+      <label>Trend<input name="trend" list="trade-entry-trends" maxLength={60} placeholder="With trend / Against trend" /></label>
+      <datalist id="trade-entry-trends"><option value="With trend" /><option value="Against trend" /></datalist>
       <label>Type<select name="side" defaultValue="buy"><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
       <label>Entry<input name="entry" placeholder="e.g. 4128-4132" required /></label>
       <label>Result<select name="result" defaultValue="tp"><option value="tp">TP Hit</option><option value="sl">SL Hit</option><option value="be">Breakeven</option></select></label>
@@ -207,12 +211,12 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <button className="primary submit" type="submit" disabled={saving}>{saving ? "Saving…" : "Save trade"}</button>
     </form>}
 
-    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>TF</th><th>Type</th><th>Entry</th><th>Result</th><th>Pips</th><th>Proof</th>{isAdmin && <th></th>}</tr></thead>
+    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Result</th><th>Pips</th><th>Reason</th>{isAdmin && <th></th>}</tr></thead>
       <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 10 : 9}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
         <td>{formatDate(row.date)}</td>
         <td><b>{row.botName}</b></td>
         <td>{row.session ? <span className={`pill session ${row.session}`}>{SESSION_LABELS[row.session]}</span> : "—"}</td>
-        <td><span className="pill tf">{row.timeframe}</span></td>
+        <td>{row.trend ? <span className={`pill ${trendTone(row.trend)}`}>{row.trend}</span> : "—"}</td>
         <td><span className={`pill ${row.side === "buy" ? "gain" : "loss"}`}>{row.side === "buy" ? "Buy" : "Sell"}</span></td>
         <td><b>{row.entry}</b></td>
         <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>

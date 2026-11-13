@@ -8,7 +8,7 @@ type Outcome = "tp" | "sl" | "be";
 type Session = "asian" | "london" | "newyork";
 type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; result: Outcome; pips: number; proofUrl: string };
 
-const TIMEFRAMES = ["M1", "M5", "M10", "M15", "M30", "H1", "H4", "D1"];
+const TIMEFRAMES = ["M10", "M12", "M15", "M20", "M30", "Emiracle Range of Candle"];
 const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
 const OUTCOME_LABELS: Record<Outcome, string> = { tp: "TP Hit", sl: "SL Hit", be: "Breakeven" };
 const PAGE_SIZE = 10;
@@ -125,7 +125,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
     }
     const databaseRow = {
       trade_date: date, bot_name: String(data.get("botName")).trim(), session: String(data.get("session")) as Session, trend: String(data.get("trend") ?? "").trim() || null,
-      timeframe: String(data.get("timeframe")).trim().toUpperCase(), side: String(data.get("side")) as Side, entry: String(data.get("entry")).trim(), result,
+      timeframe: String(data.get("timeframe")), side: String(data.get("side")) as Side, entry: String(data.get("entry")).trim(), result,
       pips: signedPips(result, Number(data.get("pips")) || 0), proof_url: proofUrl || null,
     };
     const { data: saved, error: saveError } = await supabase.from("trade_entries").insert(databaseRow).select().single();
@@ -184,9 +184,10 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <fieldset className="time-filter"><legend>Session</legend><div className="time-filter-buttons">
         {(["all", "asian", "london", "newyork"] as const).map((value) => <button key={value} type="button" className={session === value ? "active" : ""} aria-pressed={session === value} onClick={() => setSession(value)}>{value === "all" ? "All" : SESSION_LABELS[value]}</button>)}
       </div></fieldset>
-      <fieldset className="time-filter"><legend>Timeframe</legend><div className="time-filter-buttons">
-        {[...timeframes, "all"].map((tf) => <button key={tf} type="button" className={timeframe === tf ? "active" : ""} aria-pressed={timeframe === tf} onClick={() => setTimeframe(tf)}>{tf === "all" ? "All" : tf}</button>)}
-      </div></fieldset>
+      <label className="entries-timeframe">Timeframe<select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>
+        <option value="all">All timeframes</option>
+        {timeframes.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
+      </select></label>
       {isAdmin && <button className="primary" type="button" onClick={() => { setPreview(""); setShowForm((visible) => !visible); }}>{showForm ? "Close" : "+ Add trade"}</button>}
     </div>
 
@@ -197,8 +198,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <label>Bot Name<input name="botName" list="trade-entry-bots" placeholder="e.g. OB Touch XAUUSD" required /></label>
       <datalist id="trade-entry-bots">{botNames.map((name) => <option key={name} value={name} />)}</datalist>
       <label>Session<select name="session" defaultValue={session === "all" ? currentSession() : session}>{(Object.keys(SESSION_LABELS) as Session[]).map((value) => <option key={value} value={value}>{SESSION_LABELS[value]}</option>)}</select></label>
-      <label>Timeframe<input name="timeframe" list="trade-entry-timeframes" defaultValue={timeframe === "all" ? "M10" : timeframe} placeholder="e.g. M10" maxLength={10} pattern="[A-Za-z0-9 ]+" title="Letters and numbers only, e.g. M10 or H1" required /></label>
-      <datalist id="trade-entry-timeframes">{timeframes.map((tf) => <option key={tf} value={tf} />)}</datalist>
+      <label>Timeframe<select name="timeframe" defaultValue={timeframe === "all" || !TIMEFRAMES.includes(timeframe) ? "M10" : timeframe}>{TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}</select></label>
       <label>Trend<input name="trend" list="trade-entry-trends" maxLength={60} placeholder="With trend / Against trend" /></label>
       <datalist id="trade-entry-trends"><option value="With trend" /><option value="Against trend" /></datalist>
       <label>Type<select name="side" defaultValue="buy"><option value="buy">Buy</option><option value="sell">Sell</option></select></label>

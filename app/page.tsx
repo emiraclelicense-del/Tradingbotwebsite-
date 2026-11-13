@@ -2,6 +2,7 @@
 
 import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import SiteNav from "./site-nav";
 import { BotStrategy, TouchPair, matchesPair, matchesStrategy, pairLabels, strategyLabels } from "./bot-strategy";
 
 type Result = {
@@ -303,6 +304,7 @@ export default function Home() {
   const filters = <div className="filters"><fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">{[{ value: "all", label: "All time" }, { value: "yesterday", label: "Recent" }, { value: "custom", label: "Custom" }, { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" }, { value: "yearly", label: "Yearly" }].map(({ value, label }) => <button className={timeFilter === value ? "active" : ""} key={value} type="button" aria-pressed={timeFilter === value} onClick={() => setTimeFilter(value)}>{label}</button>)}</div><div className="day-navigation"><span>Browse individual days</span><button type="button" onClick={() => browseDay(-1)}>← Previous day</button><button type="button" onClick={() => browseDay(1)}>Next day →</button></div></fieldset>{timeFilter === "custom" && <div className="custom-date-range"><label>From<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</div>;
 
   return <main className={`${theme}-theme`}>
+    <SiteNav />
     <section className="hero"><div className="hero-copy"><div className="hero-top"><p className="eyebrow">TRADING PERFORMANCE</p><div className="hero-actions"><button className="theme-toggle" type="button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀" : "◐"}</button><button className="primary" onClick={() => isAdmin ? (setEditing(null), setBalances({ opening: "", closing: "" }), setShowForm((visible) => !visible)) : setLoginOpen(true)}>{isAdmin ? (showForm ? "Close form" : "+ Add daily result") : "Admin Login"}</button></div></div><h1>eMiracle <span>X</span> Bots</h1><p className="subhead">Daily results, clearly tracked.</p></div></section>
 
     {error && <p className="notice">{error}</p>}

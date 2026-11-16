@@ -67,3 +67,4 @@ body[data-theme="light"] .light-theme .bot-balances{color:#61716d}
 body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .entries-timeframe{flex:0 1 280px;color:#c4d0cd;font-size:12px;font-weight:700}.entries-timeframe select{display:block;width:100%;margin-top:7px;padding:11px;background:#0b1014;border:1px solid #344249;border-radius:7px;color:#eef5f3;font:13px Manrope;cursor:pointer}.entries-timeframe select:focus-visible{outline:2px solid #70f1bb;outline-offset:2px}
 @media(max-width:760px){.entries-timeframe{flex:1 1 100%}}
+.entries-editing{grid-column:1/-1;margin:0;color:#70f1bb;font:700 13px Manrope}.entries-table td:last-child{white-space:nowrap}

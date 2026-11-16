@@ -1,13 +1,15 @@
-export type BotStrategy = "all" | "ob" | "signal" | "live";
+export type BotStrategy = "all" | "ob" | "signal" | "live" | "recovery";
 
 export const strategyLabels: Record<BotStrategy, string> = {
   all: "All Bots",
   ob: "OB Touch",
   signal: "Signal",
   live: "Live",
+  recovery: "Recovery Live",
 };
 
 export function matchesStrategy(botName: string, strategy: string) {
+  if (strategy === "recovery") return /\brecovery\b/i.test(botName);
   if (strategy === "live") return /\blive(?:\s+bot)?\b/i.test(botName);
   const isSignal = /\b(?:emiracle(?:x)?|emircale(?:x)?|united(?:[\s_-]+kings)?|range[\s_-]*of[\s_-]*(?:candle|chart))\b/i.test(botName);
   if (strategy === "signal") return isSignal;

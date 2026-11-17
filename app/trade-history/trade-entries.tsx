@@ -6,7 +6,7 @@ import { supabase } from "../supabase";
 type Side = "buy" | "sell";
 type Outcome = "tp" | "sl" | "be";
 type Session = "asian" | "london" | "newyork";
-type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; result: Outcome; pips: number; proofUrl: string };
+type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; comment: string; result: Outcome; pips: number; proofUrl: string };
 
 const TIMEFRAMES = ["M10", "M12", "M15", "M20", "M30", "Emiracle", "Range of Candle"];
 const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
@@ -52,7 +52,7 @@ const toEntry = (row: Record<string, unknown>): TradeEntry => ({
   timeframe: String(row.timeframe), side: row.side as Side, entry: String(row.entry), result: row.result as Outcome,
   layers: row.layers == null ? null : Number(row.layers), activeEntry: row.active_entry ? String(row.active_entry) : "",
   stopLoss: row.stop_loss ? String(row.stop_loss) : "", takeProfit: row.take_profit ? String(row.take_profit) : "",
-  maxMove: row.max_move == null ? null : Number(row.max_move),
+  maxMove: row.max_move == null ? null : Number(row.max_move), comment: row.comment ? String(row.comment) : "",
   pips: Number(row.pips), proofUrl: row.proof_url ? String(row.proof_url) : "",
 });
 
@@ -137,6 +137,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       layers: String(data.get("layers") ?? "").trim() === "" ? null : Number(data.get("layers")), active_entry: optionalText(data, "activeEntry"),
       stop_loss: optionalText(data, "stopLoss"), take_profit: optionalText(data, "takeProfit"),
       max_move: String(data.get("maxMove") ?? "").trim() === "" ? null : Math.abs(Number(data.get("maxMove"))),
+      comment: optionalText(data, "comment"),
       pips: signedPips(result, Number(data.get("pips")) || 0), proof_url: proofUrl || null,
     };
     const request = editing
@@ -246,12 +247,13 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <label>Pips<input name="pips" type="number" min="0" step="0.1" placeholder="e.g. 140" defaultValue={editing ? Math.abs(editing.pips) : undefined} required /></label>
       <label className="proof-upload">Proof screenshot<input name="proofFile" type="file" accept={PROOF_TYPES.join(",")} onChange={(event) => pickProof(event.currentTarget.files?.[0], event.currentTarget)} /><small>{editing?.proofUrl ? "Choose a file to replace the current proof" : "PNG, JPG, WEBP or GIF · max 5 MB"}</small></label>
       <label>…or proof link<input name="proofUrl" type="url" placeholder="https://… (optional)" defaultValue={editing?.proofUrl} /></label>
+      <label className="entries-comment">Comment<textarea name="comment" rows={3} maxLength={1000} placeholder="Notes about this trade, e.g. why it entered, what happened, lessons…" defaultValue={editing?.comment} /></label>
       {preview && <img className="proof-preview" src={preview} alt="Selected proof screenshot preview" />}
       <button className="primary submit" type="submit" disabled={saving}>{saving ? "Saving…" : editing ? "Update trade" : "Save trade"}</button>
     </form>}
 
-    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Layers</th><th>Active Entry</th><th>SL</th><th>TP</th><th>Max Move</th><th>Result</th><th>Pips</th><th>Reason</th>{isAdmin && <th></th>}</tr></thead>
-      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 15 : 14}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
+    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Layers</th><th>Active Entry</th><th>SL</th><th>TP</th><th>Max Move</th><th>Result</th><th>Pips</th><th>Comment</th><th>Reason</th>{isAdmin && <th></th>}</tr></thead>
+      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 16 : 15}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
         <td>{formatDate(row.date)}</td>
         <td><b>{row.botName}</b></td>
         <td>{row.session ? <span className={`pill session ${row.session}`}>{SESSION_LABELS[row.session]}</span> : "—"}</td>
@@ -265,6 +267,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
         <td>{row.maxMove != null ? <b>+{row.maxMove} pips</b> : "—"}</td>
         <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>
         <td className={row.pips > 0 ? "positive" : row.pips < 0 ? "negative" : ""}><b>{row.pips > 0 ? "+" : ""}{row.pips} pips</b></td>
+        <td className="entries-comment-cell" title={row.comment || undefined}>{row.comment || "—"}</td>
         <td>{row.proofUrl ? <a className="proof-link" href={row.proofUrl} target="_blank" rel="noopener noreferrer">View Proof</a>
           : isAdmin ? <label className={`proof-link proof-add${uploadingId === row.id ? " busy" : ""}`}>{uploadingId === row.id ? "Uploading…" : "+ Upload Proof"}<input type="file" accept={PROOF_TYPES.join(",")} disabled={Boolean(uploadingId)} onChange={(event) => addProofToEntry(row, event.currentTarget)} /></label>
           : <span className="pill loss">No Screenshot</span>}</td>

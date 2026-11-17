@@ -6,7 +6,7 @@ import { supabase } from "../supabase";
 type Side = "buy" | "sell";
 type Outcome = "tp" | "sl" | "be";
 type Session = "asian" | "london" | "newyork";
-type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; comment: string; result: Outcome; pips: number; proofUrl: string };
+type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; comment: string; result: Outcome; pips: number | null; proofUrl: string };
 
 const TIMEFRAMES = ["M10", "M12", "M15", "M20", "M30", "Emiracle", "Range of Candle"];
 const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
@@ -15,7 +15,8 @@ const PAGE_SIZE = 10;
 /** Green for "with trend", red for "against trend", neutral for anything else typed. */
 const trendTone = (trend: string) => /against/i.test(trend) ? "loss" : /with/i.test(trend) ? "gain" : "tf";
 const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-const signedPips = (result: Outcome, pips: number) => result === "be" ? 0 : result === "sl" ? -Math.abs(pips) : Math.abs(pips);
+/** TP is always positive and SL always negative; breakeven keeps the sign typed in (e.g. +5 or -2). */
+const signedPips = (result: Outcome, pips: number) => result === "be" ? pips : result === "sl" ? -Math.abs(pips) : Math.abs(pips);
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 /** Guesses the session from the current UTC hour, used only as the form's default. */
 const currentSession = (): Session => { const hour = new Date().getUTCHours(); return hour < 7 ? "asian" : hour < 12 ? "london" : "newyork"; };
@@ -53,7 +54,7 @@ const toEntry = (row: Record<string, unknown>): TradeEntry => ({
   layers: row.layers == null ? null : Number(row.layers), activeEntry: row.active_entry ? String(row.active_entry) : "",
   stopLoss: row.stop_loss ? String(row.stop_loss) : "", takeProfit: row.take_profit ? String(row.take_profit) : "",
   maxMove: row.max_move == null ? null : Number(row.max_move), comment: row.comment ? String(row.comment) : "",
-  pips: Number(row.pips), proofUrl: row.proof_url ? String(row.proof_url) : "",
+  pips: row.pips == null ? null : Number(row.pips), proofUrl: row.proof_url ? String(row.proof_url) : "",
 });
 
 type Props = {
@@ -98,7 +99,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
   const summary = useMemo(() => visibleEntries.reduce((total, row) => ({
     wins: total.wins + (row.result === "tp" ? 1 : 0),
     losses: total.losses + (row.result === "sl" ? 1 : 0),
-    pips: total.pips + row.pips,
+    pips: total.pips + (row.pips ?? 0),
   }), { wins: 0, losses: 0, pips: 0 }), [visibleEntries]);
   const decided = summary.wins + summary.losses;
 
@@ -138,7 +139,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       stop_loss: optionalText(data, "stopLoss"), take_profit: optionalText(data, "takeProfit"),
       max_move: String(data.get("maxMove") ?? "").trim() === "" ? null : Math.abs(Number(data.get("maxMove"))),
       comment: optionalText(data, "comment"),
-      pips: signedPips(result, Number(data.get("pips")) || 0), proof_url: proofUrl || null,
+      pips: String(data.get("pips") ?? "").trim() === "" ? null : signedPips(result, Number(data.get("pips"))), proof_url: proofUrl || null,
     };
     const request = editing
       ? supabase.from("trade_entries").update(databaseRow).eq("id", editing.id).select().single()
@@ -244,7 +245,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <label>TP<input name="takeProfit" maxLength={40} placeholder="e.g. 4145" defaultValue={editing?.takeProfit} /></label>
       <label>Max Move (pips)<input name="maxMove" type="number" min="0" step="0.1" placeholder="How far price ran, e.g. 150" defaultValue={editing?.maxMove ?? undefined} /></label>
       <label>Result<select name="result" defaultValue={editing?.result ?? "tp"}><option value="tp">TP Hit</option><option value="sl">SL Hit</option><option value="be">Breakeven</option></select></label>
-      <label>Pips<input name="pips" type="number" min="0" step="0.1" placeholder="e.g. 140" defaultValue={editing ? Math.abs(editing.pips) : undefined} required /></label>
+      <label>Pips<input name="pips" type="number" step="0.1" placeholder="e.g. 140 (breakeven: 5 or -2)" defaultValue={editing?.pips != null ? (editing.result === "be" ? editing.pips : Math.abs(editing.pips)) : undefined} /></label>
       <label className="proof-upload">Proof screenshot<input name="proofFile" type="file" accept={PROOF_TYPES.join(",")} onChange={(event) => pickProof(event.currentTarget.files?.[0], event.currentTarget)} /><small>{editing?.proofUrl ? "Choose a file to replace the current proof" : "PNG, JPG, WEBP or GIF · max 5 MB"}</small></label>
       <label>…or proof link<input name="proofUrl" type="url" placeholder="https://… (optional)" defaultValue={editing?.proofUrl} /></label>
       <label className="entries-comment">Comment<textarea name="comment" rows={3} maxLength={1000} placeholder="Notes about this trade, e.g. why it entered, what happened, lessons…" defaultValue={editing?.comment} /></label>
@@ -266,7 +267,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
         <td className={row.takeProfit ? "positive" : ""}>{row.takeProfit || "—"}</td>
         <td>{row.maxMove != null ? <b>+{row.maxMove} pips</b> : "—"}</td>
         <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>
-        <td className={row.pips > 0 ? "positive" : row.pips < 0 ? "negative" : ""}><b>{row.pips > 0 ? "+" : ""}{row.pips} pips</b></td>
+        <td className={row.pips == null ? "" : row.pips > 0 ? "positive" : row.pips < 0 ? "negative" : ""}>{row.pips == null ? "—" : <b>{row.pips > 0 ? "+" : ""}{row.pips} pips</b>}</td>
         <td className="entries-comment-cell" title={row.comment || undefined}>{row.comment || "—"}</td>
         <td>{row.proofUrl ? <a className="proof-link" href={row.proofUrl} target="_blank" rel="noopener noreferrer">View Proof</a>
           : isAdmin ? <label className={`proof-link proof-add${uploadingId === row.id ? " busy" : ""}`}>{uploadingId === row.id ? "Uploading…" : "+ Upload Proof"}<input type="file" accept={PROOF_TYPES.join(",")} disabled={Boolean(uploadingId)} onChange={(event) => addProofToEntry(row, event.currentTarget)} /></label>

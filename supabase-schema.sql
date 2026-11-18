@@ -31,6 +31,7 @@ alter table public.trade_entries add column if not exists stop_loss text;
 alter table public.trade_entries add column if not exists take_profit text;
 alter table public.trade_entries add column if not exists max_move numeric;
 alter table public.trade_entries add column if not exists comment text;
+alter table public.trade_entries alter column pips drop not null;
 alter table public.trade_entries drop constraint if exists trade_entries_session_check;
 alter table public.trade_entries add constraint trade_entries_session_check check (session is null or session in ('asian', 'london', 'newyork'));
 alter table public.trade_entries enable row level security;

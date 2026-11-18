@@ -10,7 +10,7 @@ export const strategyLabels: Record<BotStrategy, string> = {
 
 export function matchesStrategy(botName: string, strategy: string) {
   if (strategy === "recovery") return /\brecovery\b/i.test(botName);
-  if (strategy === "live") return /\blive(?:\s+bot)?\b/i.test(botName);
+  if (strategy === "live") return /\blive(?:\s+bot)?\b/i.test(botName) && !/\brecovery\b/i.test(botName);
   const isSignal = /\b(?:emiracle(?:x)?|emircale(?:x)?|united(?:[\s_-]+kings)?|range[\s_-]*of[\s_-]*(?:candle|chart))\b/i.test(botName);
   if (strategy === "signal") return isSignal;
   if (strategy === "confirm") return /\bConfirm\b/i.test(botName);

@@ -48,7 +48,7 @@ export default function TradeHistoryPage() {
     if (time === "custom") return (!customStart || date >= customStart) && (!customEnd || date <= customEnd);
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const start = new Date(today);
-    if (time === "weekly") start.setDate(today.getDate() - 6);
+    if (time === "weekly") start.setDate(today.getDate() - ((today.getDay() + 6) % 7));
     if (time === "monthly") start.setDate(1);
     if (time === "yearly") start.setDate(today.getDate() - 364);
     return date >= dateKey(start);

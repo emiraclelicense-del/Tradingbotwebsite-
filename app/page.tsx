@@ -60,7 +60,7 @@ export default function Home() {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const start = new Date(today);
     const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
+    if (timeFilter === "weekly") start.setDate(today.getDate() - ((today.getDay() + 6) % 7));
     if (timeFilter === "monthly") start.setDate(1);
     if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
     return results.filter((row) => {
@@ -98,11 +98,24 @@ export default function Home() {
     if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return formatDate(dateKey(yesterday)); }
     if (timeFilter === "daily") return formatDate(dateKey(today));
     const start = new Date(today);
-    if (timeFilter === "weekly") start.setDate(today.getDate() - 6);
+    if (timeFilter === "weekly") start.setDate(today.getDate() - ((today.getDay() + 6) % 7));
     if (timeFilter === "monthly") start.setDate(1);
     if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
     return rangeLabel(start, today);
   }, [timeFilter, customStart, customEnd]);
+  // Date range shown in the trade log From/To inputs, kept in sync with the active time filter.
+  const periodRange = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    if (timeFilter === "custom" || timeFilter === "all") return null;
+    if (timeFilter === "yesterday") { const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1); return { start: dateKey(yesterday), end: dateKey(yesterday) }; }
+    if (timeFilter === "daily") return { start: dateKey(today), end: dateKey(today) };
+    const start = new Date(today);
+    if (timeFilter === "weekly") start.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    if (timeFilter === "monthly") start.setDate(1);
+    if (timeFilter === "yearly") start.setDate(today.getDate() - 364);
+    return { start: dateKey(start), end: dateKey(today) };
+  }, [timeFilter]);
   const baseScope = botFilter === "all" ? selectedPeriod : `${botFilter} · ${selectedPeriod}`;
   const strategyScope = strategyFilter === "all" ? "" : `${strategyLabels[strategyFilter]}${activePair === "all" ? "" : ` ${pairLabels[activePair]}`} · `;
   const selectedScope = `${strategyScope}${baseScope}`;
@@ -357,9 +370,9 @@ export default function Home() {
         <span>{tableScope} · Day {dayIndex + 1} of {resultDates.length}</span>
         <button type="button" onClick={() => setDayIndex((current) => current - 1)} disabled={dayIndex === 0}>Next day →</button>
       </nav>}
-      <form className="trade-date-range" key={`${strategyFilter}:${activePair}:${botFilter}:${firstHistoryDate}:${customStart}:${customEnd}`} onSubmit={showDateRange} aria-label="Show trade results by date range">
-        <label>From<input name="from" type="date" defaultValue={customStart || firstHistoryDate} required onChange={(event) => { const end = event.currentTarget.form?.elements.namedItem("to") as HTMLInputElement | null; end?.setCustomValidity(""); }} /></label>
-        <label>To<input name="to" type="date" defaultValue={customEnd || todayDate} required onChange={(event) => event.currentTarget.setCustomValidity("")} /></label>
+      <form className="trade-date-range" key={`${strategyFilter}:${activePair}:${botFilter}:${firstHistoryDate}:${timeFilter}:${customStart}:${customEnd}`} onSubmit={showDateRange} aria-label="Show trade results by date range">
+        <label>From<input name="from" type="date" defaultValue={periodRange?.start ?? (timeFilter === "custom" && customStart ? customStart : firstHistoryDate)} required onChange={(event) => { const end = event.currentTarget.form?.elements.namedItem("to") as HTMLInputElement | null; end?.setCustomValidity(""); }} /></label>
+        <label>To<input name="to" type="date" defaultValue={periodRange?.end ?? (timeFilter === "custom" && customEnd ? customEnd : todayDate)} required onChange={(event) => event.currentTarget.setCustomValidity("")} /></label>
         <button className="primary" type="button" onClick={showAllHistory}>All time</button>
         <button className="primary" type="submit">Show results</button>
         <span>Shows results for the selected bot and strategy filters.</span>

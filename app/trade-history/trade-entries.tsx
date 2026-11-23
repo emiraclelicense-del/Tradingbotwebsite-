@@ -6,7 +6,7 @@ import { supabase } from "../supabase";
 type Side = "buy" | "sell";
 type Outcome = "tp" | "sl" | "be";
 type Session = "asian" | "london" | "newyork";
-type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; comment: string; result: Outcome; pips: number | null; proofUrl: string };
+type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; mae: string; mfe: string; comment: string; result: Outcome; pips: number | null; proofUrl: string };
 
 const TIMEFRAMES = ["M10", "M12", "M15", "M20", "M30", "Emiracle", "Range of Candle"];
 const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
@@ -14,7 +14,7 @@ const OUTCOME_LABELS: Record<Outcome, string> = { tp: "TP Hit", sl: "SL Hit", be
 const PAGE_SIZE = 10;
 /** Green for "with trend", red for "against trend", neutral for anything else typed. */
 const trendTone = (trend: string) => /against/i.test(trend) ? "loss" : /with/i.test(trend) ? "gain" : "tf";
-const formatDate = (date: string) => new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+const formatDate = (date: string) => !date ? "—" : new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 /** TP is always positive and SL always negative; breakeven keeps the sign typed in (e.g. +5 or -2). */
 const signedPips = (result: Outcome, pips: number) => result === "be" ? pips : result === "sl" ? -Math.abs(pips) : Math.abs(pips);
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -49,11 +49,11 @@ function proofPath(url: string) {
 const optionalText = (data: FormData, name: string) => String(data.get(name) ?? "").trim() || null;
 
 const toEntry = (row: Record<string, unknown>): TradeEntry => ({
-  id: String(row.id), date: String(row.trade_date), botName: String(row.bot_name), session: (row.session as Session | null) ?? null, trend: row.trend ? String(row.trend) : "",
-  timeframe: String(row.timeframe), side: row.side as Side, entry: String(row.entry), result: row.result as Outcome,
+  id: String(row.id), date: row.trade_date ? String(row.trade_date) : "", botName: row.bot_name ? String(row.bot_name) : "", session: (row.session as Session | null) ?? null, trend: row.trend ? String(row.trend) : "",
+  timeframe: String(row.timeframe), side: row.side as Side, entry: row.entry ? String(row.entry) : "", result: row.result as Outcome,
   layers: row.layers == null ? null : Number(row.layers), activeEntry: row.active_entry ? String(row.active_entry) : "",
   stopLoss: row.stop_loss ? String(row.stop_loss) : "", takeProfit: row.take_profit ? String(row.take_profit) : "",
-  maxMove: row.max_move == null ? null : Number(row.max_move), comment: row.comment ? String(row.comment) : "",
+  maxMove: row.max_move == null ? null : Number(row.max_move), mae: row.mae ? String(row.mae) : "", mfe: row.mfe ? String(row.mfe) : "", comment: row.comment ? String(row.comment) : "",
   pips: row.pips == null ? null : Number(row.pips), proofUrl: row.proof_url ? String(row.proof_url) : "",
 });
 
@@ -80,7 +80,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
 
   useEffect(() => {
     async function load() {
-      const { data, error: loadError } = await supabase.from("trade_entries").select("*").order("trade_date", { ascending: false }).order("created_at", { ascending: false });
+      const { data, error: loadError } = await supabase.from("trade_entries").select("*").order("trade_date", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false });
       if (loadError) { setError("Trade history is not ready yet. Run the Trade History block from supabase-schema.sql in Supabase."); return; }
       setEntries((data ?? []).map(toEntry));
     }
@@ -126,19 +126,19 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
     const previousProof = editing?.proofUrl ?? "";
     let proofUrl = String(data.get("proofUrl") ?? "").trim();
     try {
-      if (file) proofUrl = await uploadProof(file, date);
+      if (file) proofUrl = await uploadProof(file, date || today());
     } catch {
       setSaving(false);
       setError("Could not upload the proof image. Make sure the Trade History SQL has been run and you are signed in.");
       return;
     }
     const databaseRow = {
-      trade_date: date, bot_name: String(data.get("botName")).trim(), session: String(data.get("session")) as Session, trend: String(data.get("trend") ?? "").trim() || null,
-      timeframe: String(data.get("timeframe")), side: String(data.get("side")) as Side, entry: String(data.get("entry")).trim(), result,
+      trade_date: date || null, bot_name: optionalText(data, "botName"), session: String(data.get("session")) as Session, trend: String(data.get("trend") ?? "").trim() || null,
+      timeframe: String(data.get("timeframe")), side: String(data.get("side")) as Side, entry: optionalText(data, "entry"), result,
       layers: String(data.get("layers") ?? "").trim() === "" ? null : Number(data.get("layers")), active_entry: optionalText(data, "activeEntry"),
       stop_loss: optionalText(data, "stopLoss"), take_profit: optionalText(data, "takeProfit"),
       max_move: String(data.get("maxMove") ?? "").trim() === "" ? null : Math.abs(Number(data.get("maxMove"))),
-      comment: optionalText(data, "comment"),
+      mae: optionalText(data, "mae"), mfe: optionalText(data, "mfe"), comment: optionalText(data, "comment"),
       pips: String(data.get("pips") ?? "").trim() === "" ? null : signedPips(result, Number(data.get("pips"))), proof_url: proofUrl || null,
     };
     const request = editing
@@ -195,7 +195,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
     if (problem) { setError(problem); return; }
     setUploadingId(row.id);
     try {
-      const url = await uploadProof(file, row.date);
+      const url = await uploadProof(file, row.date || today());
       const { error: updateError } = await supabase.from("trade_entries").update({ proof_url: url }).eq("id", row.id);
       if (updateError) {
         const path = proofPath(url);
@@ -230,20 +230,22 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
 
     {isAdmin && showForm && <form key={editing?.id ?? "new"} className="entries-form" onSubmit={addEntry}>
       {editing && <p className="entries-editing">Editing trade from {formatDate(editing.date)} · {editing.botName}</p>}
-      <label>Date<input name="date" type="date" defaultValue={editing?.date ?? today()} required /></label>
-      <label>Bot Name<input name="botName" list="trade-entry-bots" placeholder="e.g. OB Touch XAUUSD" defaultValue={editing?.botName} required /></label>
+      <label>Date<input name="date" type="date" defaultValue={editing?.date ?? today()} /></label>
+      <label>Bot Name<input name="botName" list="trade-entry-bots" placeholder="e.g. OB Touch XAUUSD" defaultValue={editing?.botName} /></label>
       <datalist id="trade-entry-bots">{botNames.map((name) => <option key={name} value={name} />)}</datalist>
       <label>Session<select name="session" defaultValue={editing?.session ?? (session === "all" ? currentSession() : session)}>{(Object.keys(SESSION_LABELS) as Session[]).map((value) => <option key={value} value={value}>{SESSION_LABELS[value]}</option>)}</select></label>
       <label>Timeframe<select name="timeframe" defaultValue={editing?.timeframe ?? (timeframe === "all" || !TIMEFRAMES.includes(timeframe) ? "M10" : timeframe)}>{(editing ? timeframes : TIMEFRAMES).map((tf) => <option key={tf} value={tf}>{tf}</option>)}</select></label>
       <label>Trend<input name="trend" list="trade-entry-trends" maxLength={60} placeholder="With trend / Against trend" defaultValue={editing?.trend} /></label>
       <datalist id="trade-entry-trends"><option value="With trend" /><option value="Against trend" /></datalist>
       <label>Type<select name="side" defaultValue={editing?.side ?? "buy"}><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
-      <label>Entry<input name="entry" placeholder="e.g. 4128-4132" defaultValue={editing?.entry} required /></label>
+      <label>Entry<input name="entry" placeholder="e.g. 4128-4132" defaultValue={editing?.entry} /></label>
       <label>Layers activated<input name="layers" type="number" min="0" step="1" placeholder="e.g. 3" defaultValue={editing?.layers ?? undefined} /></label>
       <label>Active entry<input name="activeEntry" maxLength={40} placeholder="Entry that ran to TP, e.g. 4130" defaultValue={editing?.activeEntry} /></label>
       <label>SL<input name="stopLoss" maxLength={40} placeholder="e.g. 4120" defaultValue={editing?.stopLoss} /></label>
       <label>TP<input name="takeProfit" maxLength={40} placeholder="e.g. 4145" defaultValue={editing?.takeProfit} /></label>
       <label>Max Move (pips)<input name="maxMove" type="number" min="0" step="0.1" placeholder="How far price ran, e.g. 150" defaultValue={editing?.maxMove ?? undefined} /></label>
+      <label>MAE<input name="mae" maxLength={40} placeholder="Max adverse move, e.g. 35 or 3618.5" defaultValue={editing?.mae} /></label>
+      <label>MFE<input name="mfe" maxLength={40} placeholder="Max favourable move, e.g. 120 or 3604" defaultValue={editing?.mfe} /></label>
       <label>Result<select name="result" defaultValue={editing?.result ?? "tp"}><option value="tp">TP Hit</option><option value="sl">SL Hit</option><option value="be">Breakeven</option></select></label>
       <label>Pips<input name="pips" type="number" step="0.1" placeholder="e.g. 140 (breakeven: 5 or -2)" defaultValue={editing?.pips != null ? (editing.result === "be" ? editing.pips : Math.abs(editing.pips)) : undefined} /></label>
       <label className="proof-upload">Proof screenshot<input name="proofFile" type="file" accept={PROOF_TYPES.join(",")} onChange={(event) => pickProof(event.currentTarget.files?.[0], event.currentTarget)} /><small>{editing?.proofUrl ? "Choose a file to replace the current proof" : "PNG, JPG, WEBP or GIF · max 5 MB"}</small></label>
@@ -253,25 +255,27 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <button className="primary submit" type="submit" disabled={saving}>{saving ? "Saving…" : editing ? "Update trade" : "Save trade"}</button>
     </form>}
 
-    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Layers</th><th>Active Entry</th><th>SL</th><th>TP</th><th>Max Move</th><th>Result</th><th>Pips</th><th>Comment</th><th>Reason</th>{isAdmin && <th></th>}</tr></thead>
-      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 16 : 15}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
+    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips</th><th>Layers</th><th>Active Entry</th><th>SL</th><th>TP</th><th>Result</th><th>Comment</th><th>Reason</th><th>MAE</th><th>MFE</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
+      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 18 : 17}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
         <td>{formatDate(row.date)}</td>
         <td><b>{row.botName}</b></td>
         <td>{row.session ? <span className={`pill session ${row.session}`}>{SESSION_LABELS[row.session]}</span> : "—"}</td>
         <td>{row.trend ? <span className={`pill ${trendTone(row.trend)}`}>{row.trend}</span> : "—"}</td>
         <td><span className={`pill ${row.side === "buy" ? "gain" : "loss"}`}>{row.side === "buy" ? "Buy" : "Sell"}</span></td>
         <td><b>{row.entry}</b></td>
+        <td className={row.pips == null ? "" : row.pips > 0 ? "positive" : row.pips < 0 ? "negative" : ""}>{row.pips == null ? "—" : <b>{row.pips > 0 ? "+" : ""}{row.pips} pips</b>}</td>
         <td>{row.layers ?? "—"}</td>
         <td>{row.activeEntry ? <b>{row.activeEntry}</b> : "—"}</td>
         <td className={row.stopLoss ? "negative" : ""}>{row.stopLoss || "—"}</td>
         <td className={row.takeProfit ? "positive" : ""}>{row.takeProfit || "—"}</td>
-        <td>{row.maxMove != null ? <b>+{row.maxMove} pips</b> : "—"}</td>
         <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>
-        <td className={row.pips == null ? "" : row.pips > 0 ? "positive" : row.pips < 0 ? "negative" : ""}>{row.pips == null ? "—" : <b>{row.pips > 0 ? "+" : ""}{row.pips} pips</b>}</td>
         <td className="entries-comment-cell" title={row.comment || undefined}>{row.comment || "—"}</td>
         <td>{row.proofUrl ? <a className="proof-link" href={row.proofUrl} target="_blank" rel="noopener noreferrer">View Proof</a>
           : isAdmin ? <label className={`proof-link proof-add${uploadingId === row.id ? " busy" : ""}`}>{uploadingId === row.id ? "Uploading…" : "+ Upload Proof"}<input type="file" accept={PROOF_TYPES.join(",")} disabled={Boolean(uploadingId)} onChange={(event) => addProofToEntry(row, event.currentTarget)} /></label>
           : <span className="pill loss">No Screenshot</span>}</td>
+        <td>{row.mae ? <b className="negative">{row.mae}</b> : "—"}</td>
+        <td>{row.mfe ? <b className="positive">{row.mfe}</b> : "—"}</td>
+        <td>{row.maxMove != null ? <b>+{row.maxMove} pips</b> : "—"}</td>
         {isAdmin && <td><button className="edit" type="button" onClick={() => startEdit(row)} aria-label={`Edit ${row.botName} trade on ${row.date}`}>Edit</button><button className="delete" onClick={() => removeEntry(row)} aria-label={`Delete ${row.botName} trade on ${row.date}`}>×</button></td>}
       </tr>)}</tbody></table></div>
 

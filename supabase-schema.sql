@@ -34,6 +34,7 @@ alter table public.trade_entries add column if not exists comment text;
 alter table public.trade_entries alter column pips drop not null;
 alter table public.trade_entries add column if not exists mae text;
 alter table public.trade_entries add column if not exists mfe text;
+alter table public.trade_entries add column if not exists profit_usd numeric;
 alter table public.trade_entries alter column trade_date drop not null;
 alter table public.trade_entries alter column bot_name drop not null;
 alter table public.trade_entries alter column entry drop not null;

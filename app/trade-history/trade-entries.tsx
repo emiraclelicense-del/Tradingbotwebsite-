@@ -6,12 +6,15 @@ import { supabase } from "../supabase";
 type Side = "buy" | "sell";
 type Outcome = "tp" | "sl" | "be";
 type Session = "asian" | "london" | "newyork";
-type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; mae: string; mfe: string; comment: string; result: Outcome; pips: number | null; proofUrl: string };
+type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; mae: string; mfe: string; comment: string; result: Outcome; pips: number | null; profitUsd: number | null; proofUrl: string };
 
 const TIMEFRAMES = ["M10", "M12", "M15", "M20", "M30", "Emiracle", "Range of Candle"];
 const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
 const OUTCOME_LABELS: Record<Outcome, string> = { tp: "TP Hit", sl: "SL Hit", be: "Breakeven" };
 const PAGE_SIZE = 10;
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+/** "+$70.92" / "-$368.07" */
+const signedUsd = (amount: number) => `${amount > 0 ? "+" : amount < 0 ? "-" : ""}${usd.format(Math.abs(amount))}`;
 /** Green for "with trend", red for "against trend", neutral for anything else typed. */
 const trendTone = (trend: string) => /against/i.test(trend) ? "loss" : /with/i.test(trend) ? "gain" : "tf";
 const formatDate = (date: string) => !date ? "—" : new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -54,7 +57,7 @@ const toEntry = (row: Record<string, unknown>): TradeEntry => ({
   layers: row.layers == null ? null : Number(row.layers), activeEntry: row.active_entry ? String(row.active_entry) : "",
   stopLoss: row.stop_loss ? String(row.stop_loss) : "", takeProfit: row.take_profit ? String(row.take_profit) : "",
   maxMove: row.max_move == null ? null : Number(row.max_move), mae: row.mae ? String(row.mae) : "", mfe: row.mfe ? String(row.mfe) : "", comment: row.comment ? String(row.comment) : "",
-  pips: row.pips == null ? null : Number(row.pips), proofUrl: row.proof_url ? String(row.proof_url) : "",
+  pips: row.pips == null ? null : Number(row.pips), profitUsd: row.profit_usd == null ? null : Number(row.profit_usd), proofUrl: row.proof_url ? String(row.proof_url) : "",
 });
 
 type Props = {
@@ -100,7 +103,8 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
     wins: total.wins + (row.result === "tp" ? 1 : 0),
     losses: total.losses + (row.result === "sl" ? 1 : 0),
     pips: total.pips + (row.pips ?? 0),
-  }), { wins: 0, losses: 0, pips: 0 }), [visibleEntries]);
+    usd: total.usd + (row.profitUsd ?? 0),
+  }), { wins: 0, losses: 0, pips: 0, usd: 0 }), [visibleEntries]);
   const decided = summary.wins + summary.losses;
 
   useEffect(() => { setPage(0); }, [timeframe, session, inScope]);
@@ -139,7 +143,8 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       stop_loss: optionalText(data, "stopLoss"), take_profit: optionalText(data, "takeProfit"),
       max_move: String(data.get("maxMove") ?? "").trim() === "" ? null : Math.abs(Number(data.get("maxMove"))),
       mae: optionalText(data, "mae"), mfe: optionalText(data, "mfe"), comment: optionalText(data, "comment"),
-      pips: String(data.get("pips") ?? "").trim() === "" ? null : signedPips(result, Number(data.get("pips"))), proof_url: proofUrl || null,
+      pips: String(data.get("pips") ?? "").trim() === "" ? null : signedPips(result, Number(data.get("pips"))),
+      profit_usd: String(data.get("profitUsd") ?? "").trim() === "" ? null : signedPips(result, Number(data.get("profitUsd"))), proof_url: proofUrl || null,
     };
     const request = editing
       ? supabase.from("trade_entries").update(databaseRow).eq("id", editing.id).select().single()
@@ -213,7 +218,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
 
   return <section className="table-card entries-card" aria-labelledby="trade-entries-heading">
     <div className="table-title"><div><p className="eyebrow">TRADE PERFORMANCE</p><h2 id="trade-entries-heading">Where each bot entered &amp; the result</h2></div>
-      <span>{visibleEntries.length} trades · {decided ? `${((summary.wins / decided) * 100).toFixed(0)}% win rate · ` : ""}<b className={summary.pips >= 0 ? "positive" : "negative"}>{summary.pips >= 0 ? "+" : ""}{summary.pips} pips</b> · {scopeLabel}</span></div>
+      <span>{visibleEntries.length} trades · {decided ? `${((summary.wins / decided) * 100).toFixed(0)}% win rate · ` : ""}<b className={summary.pips >= 0 ? "positive" : "negative"}>{summary.pips >= 0 ? "+" : ""}{summary.pips} pips</b> · <b className={summary.usd >= 0 ? "positive" : "negative"}>{signedUsd(summary.usd)}</b> · {scopeLabel}</span></div>
 
     <div className="entries-menu">
       <fieldset className="time-filter"><legend>Session</legend><div className="time-filter-buttons">
@@ -248,6 +253,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <label>MFE<input name="mfe" maxLength={40} placeholder="Max favourable move, e.g. 120 or 3604" defaultValue={editing?.mfe} /></label>
       <label>Result<select name="result" defaultValue={editing?.result ?? "tp"}><option value="tp">TP Hit</option><option value="sl">SL Hit</option><option value="be">Breakeven</option></select></label>
       <label>Pips<input name="pips" type="number" step="0.1" placeholder="e.g. 140 (breakeven: 5 or -2)" defaultValue={editing?.pips != null ? (editing.result === "be" ? editing.pips : Math.abs(editing.pips)) : undefined} /></label>
+      <label>Profit / Loss (USD)<input name="profitUsd" type="number" step="0.01" placeholder="e.g. 70.92 (breakeven: 5 or -2)" defaultValue={editing?.profitUsd != null ? (editing.result === "be" ? editing.profitUsd : Math.abs(editing.profitUsd)) : undefined} /></label>
       <label className="proof-upload">Proof screenshot<input name="proofFile" type="file" accept={PROOF_TYPES.join(",")} onChange={(event) => pickProof(event.currentTarget.files?.[0], event.currentTarget)} /><small>{editing?.proofUrl ? "Choose a file to replace the current proof" : "PNG, JPG, WEBP or GIF · max 5 MB"}</small></label>
       <label>…or proof link<input name="proofUrl" type="url" placeholder="https://… (optional)" defaultValue={editing?.proofUrl} /></label>
       <label className="entries-comment">Comment<textarea name="comment" rows={3} maxLength={1000} placeholder="Notes about this trade, e.g. why it entered, what happened, lessons…" defaultValue={editing?.comment} /></label>
@@ -255,8 +261,8 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <button className="primary submit" type="submit" disabled={saving}>{saving ? "Saving…" : editing ? "Update trade" : "Save trade"}</button>
     </form>}
 
-    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips</th><th>Layers</th><th>Active Entry</th><th>SL</th><th>TP</th><th>Result</th><th>Comment</th><th>Reason</th><th>MAE</th><th>MFE</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
-      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 18 : 17}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
+    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips</th><th>P/L (USD)</th><th>Layers</th><th>Active Entry</th><th>SL</th><th>TP</th><th>Result</th><th>Comment</th><th>Reason</th><th>MAE</th><th>MFE</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
+      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 19 : 18}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
         <td>{formatDate(row.date)}</td>
         <td><b>{row.botName}</b></td>
         <td>{row.session ? <span className={`pill session ${row.session}`}>{SESSION_LABELS[row.session]}</span> : "—"}</td>
@@ -264,6 +270,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
         <td><span className={`pill ${row.side === "buy" ? "gain" : "loss"}`}>{row.side === "buy" ? "Buy" : "Sell"}</span></td>
         <td><b>{row.entry}</b></td>
         <td className={row.pips == null ? "" : row.pips > 0 ? "positive" : row.pips < 0 ? "negative" : ""}>{row.pips == null ? "—" : <b>{row.pips > 0 ? "+" : ""}{row.pips} pips</b>}</td>
+        <td className={row.profitUsd == null ? "" : row.profitUsd > 0 ? "positive" : row.profitUsd < 0 ? "negative" : ""}>{row.profitUsd == null ? "—" : <b>{signedUsd(row.profitUsd)}</b>}</td>
         <td>{row.layers ?? "—"}</td>
         <td>{row.activeEntry ? <b>{row.activeEntry}</b> : "—"}</td>
         <td className={row.stopLoss ? "negative" : ""}>{row.stopLoss || "—"}</td>

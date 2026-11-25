@@ -62,3 +62,10 @@ drop policy if exists "Signed-in users can delete trade proofs" on storage.objec
 create policy "Signed-in users can upload trade proofs" on storage.objects for insert to authenticated with check (bucket_id = 'trade-proofs');
 create policy "Signed-in users can update trade proofs" on storage.objects for update to authenticated using (bucket_id = 'trade-proofs') with check (bucket_id = 'trade-proofs');
 create policy "Signed-in users can delete trade proofs" on storage.objects for delete to authenticated using (bucket_id = 'trade-proofs');
+
+-- ===== Auto trades from the MT5 EA (run this block in the Supabase SQL Editor; safe to run again) =====
+-- ea_key = one row per EA setup; result 'open' = trade still running (shown as "Running")
+alter table public.trade_entries add column if not exists ea_key text;
+create unique index if not exists trade_entries_ea_key_idx on public.trade_entries (ea_key);
+alter table public.trade_entries drop constraint if exists trade_entries_result_check;
+alter table public.trade_entries add constraint trade_entries_result_check check (result in ('tp', 'sl', 'be', 'open'));

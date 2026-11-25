@@ -4,13 +4,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 
 type Side = "buy" | "sell";
-type Outcome = "tp" | "sl" | "be";
+type Outcome = "tp" | "sl" | "be" | "open";
 type Session = "asian" | "london" | "newyork";
 type TradeEntry = { id: string; date: string; botName: string; session: Session | null; trend: string; timeframe: string; side: Side; entry: string; layers: number | null; activeEntry: string; stopLoss: string; takeProfit: string; maxMove: number | null; mae: string; mfe: string; comment: string; result: Outcome; pips: number | null; profitUsd: number | null; proofUrl: string };
 
 const TIMEFRAMES = ["M10", "M12", "M15", "M20", "M30", "Emiracle", "Range of Candle"];
 const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
-const OUTCOME_LABELS: Record<Outcome, string> = { tp: "TP Hit", sl: "SL Hit", be: "Breakeven" };
+const OUTCOME_LABELS: Record<Outcome, string> = { tp: "TP Hit", sl: "SL Hit", be: "Breakeven", open: "Running" };
 const PAGE_SIZE = 10;
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 /** "+$70.92" / "-$368.07" */
@@ -18,8 +18,8 @@ const signedUsd = (amount: number) => `${amount > 0 ? "+" : amount < 0 ? "-" : "
 /** Green for "with trend", red for "against trend", neutral for anything else typed. */
 const trendTone = (trend: string) => /against/i.test(trend) ? "loss" : /with/i.test(trend) ? "gain" : "tf";
 const formatDate = (date: string) => !date ? "—" : new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-/** TP is always positive and SL always negative; breakeven keeps the sign typed in (e.g. +5 or -2). */
-const signedPips = (result: Outcome, pips: number) => result === "be" ? pips : result === "sl" ? -Math.abs(pips) : Math.abs(pips);
+/** TP is always positive and SL always negative; breakeven / running keep the sign typed in (e.g. +5 or -2). */
+const signedPips = (result: Outcome, pips: number) => result === "be" || result === "open" ? pips : result === "sl" ? -Math.abs(pips) : Math.abs(pips);
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 /** Guesses the session from the current UTC hour, used only as the form's default. */
 const currentSession = (): Session => { const hour = new Date().getUTCHours(); return hour < 7 ? "asian" : hour < 12 ? "london" : "newyork"; };
@@ -251,9 +251,9 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <label>Max Move (pips)<input name="maxMove" type="number" min="0" step="0.1" placeholder="How far price ran, e.g. 150" defaultValue={editing?.maxMove ?? undefined} /></label>
       <label>MAE<input name="mae" maxLength={40} placeholder="Max adverse move, e.g. 35 or 3618.5" defaultValue={editing?.mae} /></label>
       <label>MFE<input name="mfe" maxLength={40} placeholder="Max favourable move, e.g. 120 or 3604" defaultValue={editing?.mfe} /></label>
-      <label>Result<select name="result" defaultValue={editing?.result ?? "tp"}><option value="tp">TP Hit</option><option value="sl">SL Hit</option><option value="be">Breakeven</option></select></label>
-      <label>Pips<input name="pips" type="number" step="0.1" placeholder="e.g. 140 (breakeven: 5 or -2)" defaultValue={editing?.pips != null ? (editing.result === "be" ? editing.pips : Math.abs(editing.pips)) : undefined} /></label>
-      <label>Profit / Loss (USD)<input name="profitUsd" type="number" step="0.01" placeholder="e.g. 70.92 (breakeven: 5 or -2)" defaultValue={editing?.profitUsd != null ? (editing.result === "be" ? editing.profitUsd : Math.abs(editing.profitUsd)) : undefined} /></label>
+      <label>Result<select name="result" defaultValue={editing?.result ?? "tp"}><option value="tp">TP Hit</option><option value="sl">SL Hit</option><option value="be">Breakeven</option><option value="open">Running</option></select></label>
+      <label>Pips<input name="pips" type="number" step="0.1" placeholder="e.g. 140 (breakeven: 5 or -2)" defaultValue={editing?.pips != null ? (editing.result === "be" || editing.result === "open" ? editing.pips : Math.abs(editing.pips)) : undefined} /></label>
+      <label>Profit / Loss (USD)<input name="profitUsd" type="number" step="0.01" placeholder="e.g. 70.92 (breakeven: 5 or -2)" defaultValue={editing?.profitUsd != null ? (editing.result === "be" || editing.result === "open" ? editing.profitUsd : Math.abs(editing.profitUsd)) : undefined} /></label>
       <label className="proof-upload">Proof screenshot<input name="proofFile" type="file" accept={PROOF_TYPES.join(",")} onChange={(event) => pickProof(event.currentTarget.files?.[0], event.currentTarget)} /><small>{editing?.proofUrl ? "Choose a file to replace the current proof" : "PNG, JPG, WEBP or GIF · max 5 MB"}</small></label>
       <label>…or proof link<input name="proofUrl" type="url" placeholder="https://… (optional)" defaultValue={editing?.proofUrl} /></label>
       <label className="entries-comment">Comment<textarea name="comment" rows={3} maxLength={1000} placeholder="Notes about this trade, e.g. why it entered, what happened, lessons…" defaultValue={editing?.comment} /></label>
@@ -275,7 +275,7 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
         <td>{row.activeEntry ? <b>{row.activeEntry}</b> : "—"}</td>
         <td className={row.stopLoss ? "negative" : ""}>{row.stopLoss || "—"}</td>
         <td className={row.takeProfit ? "positive" : ""}>{row.takeProfit || "—"}</td>
-        <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>
+        <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : row.result === "open" ? "open" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>
         <td className="entries-comment-cell" title={row.comment || undefined}>{row.comment || "—"}</td>
         <td>{row.proofUrl ? <a className="proof-link" href={row.proofUrl} target="_blank" rel="noopener noreferrer">View Proof</a>
           : isAdmin ? <label className={`proof-link proof-add${uploadingId === row.id ? " busy" : ""}`}>{uploadingId === row.id ? "Uploading…" : "+ Upload Proof"}<input type="file" accept={PROOF_TYPES.join(",")} disabled={Boolean(uploadingId)} onChange={(event) => addProofToEntry(row, event.currentTarget)} /></label>

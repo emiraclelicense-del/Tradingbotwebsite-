@@ -69,3 +69,5 @@ alter table public.trade_entries add column if not exists ea_key text;
 create unique index if not exists trade_entries_ea_key_idx on public.trade_entries (ea_key);
 alter table public.trade_entries drop constraint if exists trade_entries_result_check;
 alter table public.trade_entries add constraint trade_entries_result_check check (result in ('tp', 'sl', 'be', 'open'));
+-- the EA log API (/api/ea-log) writes with the service_role (secret) key: it needs its own table rights
+grant select, insert, update on public.trade_entries to service_role;

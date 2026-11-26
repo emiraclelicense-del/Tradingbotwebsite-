@@ -52,6 +52,8 @@ async function sync() {
   }
 
   const rows = new Map<string, Row>();
+  // original SL of each setup (its "limits" / "fill" alerts): a close alert carries the trailed BE SL instead
+  const firstSl = new Map<string, string>();
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     let env: { event?: string; time?: number; message?: string };
@@ -73,6 +75,11 @@ async function sync() {
       }
       continue;
     }
+    if ((a.event === "limits" || a.event === "fill") && typeof a.id === "string" && a.id.endsWith("_tg") && fmt(a.sl)) {
+      const k = `${symbol}|${tf}|${a.id.slice(0, -3)}`;
+      if (a.event === "limits" || !firstSl.has(k)) firstSl.set(k, fmt(a.sl)!);
+      continue;
+    }
     if (a.event === "close" && typeof a.id === "string" && a.id.endsWith("_tg") && (a.side === "buy" || a.side === "sell") && typeof env.time === "number") {
       const msg = typeof a.msg === "string" ? a.msg : "";
       const k = `${symbol}|${tf}|${a.id.slice(0, -3)}`;
@@ -80,7 +87,7 @@ async function sync() {
       const tps = Array.isArray(a.tp) ? a.tp.filter((v): v is number => typeof v === "number") : [];
       const runs = msg.includes("RUNS ") ? msg.slice(msg.indexOf("RUNS ") + 5).trim() : null;
       rows.set(k, merge(rows.get(k), { key: k, symbol, tf, side: a.side, closed_at: new Date(env.time * 1000).toISOString(), result: closeResult(msg),
-        best_run: null, runs, entry: limits.length ? limits.join(", ") : null, stop_loss: fmt(a.sl), take_profit: tps.length ? tps.join(" / ") : null,
+        best_run: null, runs, entry: limits.length ? limits.join(", ") : null, stop_loss: firstSl.get(k) ?? fmt(a.sl), take_profit: tps.length ? tps.join(" / ") : null,
         tp_hit: /TARGET/i.test(msg) ? tps.length : Number(/AFTER TP(\d+)/i.exec(msg)?.[1] ?? 0), filled: typeof a.filled === "number" ? a.filled : null, max_move: null, from_history: false }));
     }
   }

@@ -86,7 +86,8 @@ function money(t: TvTrade): { pl: number | null; peak: number | null } {
   return { pl, peak };
 }
 
-const closedText = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+// always Pakistan time (PKT, UTC+5), whatever the viewer's computer is set to
+const closedText = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Karachi" }) + " PKT";
 
 export default function TvHistoryPage() {
   const [trades, setTrades] = useState<TvTrade[]>([]);
@@ -119,7 +120,7 @@ export default function TvHistoryPage() {
   const symbols = useMemo(() => [...new Set(trades.map((t) => t.symbol))].sort(), [trades]);
   const tfs = useMemo(() => [...new Set(trades.filter((t) => symbol === "all" || t.symbol === symbol).map((t) => t.tf))].sort((a, b) => tfMinutes(a) - tfMinutes(b)), [trades, symbol]);
   const shown = useMemo(() => {
-    const from = days === 1 ? new Date(new Date().setHours(0, 0, 0, 0)).getTime() : Date.now() - days * 86400000;
+    const from = days === 1 ? Math.floor((Date.now() + 5 * 3600000) / 86400000) * 86400000 - 5 * 3600000 : Date.now() - days * 86400000;   // "Today" = since midnight Pakistan time
     return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && new Date(t.closedAt).getTime() >= from);
   }, [trades, symbol, tf, days]);
   const count = (r: Result) => shown.filter((t) => t.result === r).length;
@@ -160,7 +161,7 @@ export default function TvHistoryPage() {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (your time) / Chart</th><th>Side / Result</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart</th><th>Side / Result</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
         <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={9}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n);
           return <tr key={t.key}>

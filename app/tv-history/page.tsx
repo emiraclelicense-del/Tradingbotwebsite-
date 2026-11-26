@@ -43,6 +43,15 @@ function maxMoveE1(t: TvTrade) {
   return best == null ? null : Math.max(0, Math.round(best * 10) / 10);
 }
 
+/** Profit of ALL active entries (E1..En, their lots) at the max move price (E1 + move pips). */
+function moveUsd(t: TvTrade, move: number, n: number) {
+  const lims = t.limits.map(Number), { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
+  const price = lims[0] + dir * move * pip;
+  let sum = 0;
+  for (let L = 0; L < Math.min(n, lims.length); L++) if (Number.isFinite(lims[L])) sum += LOTS[L] * (price - lims[L]) * dir * contract;
+  return sum;
+}
+
 function money(t: TvTrade): { pl: number | null; peak: number | null } {
   const lims = t.limits.map(Number), tps = t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map(Number).slice(0, 4) : [], sl = Number(t.stopLoss);
   if (lims.length < 1 || lims.some((v) => !Number.isFinite(v))) return { pl: null, peak: null };
@@ -160,7 +169,7 @@ export default function TvHistoryPage() {
               {t.stopLoss && <span className="entry-sub negative">SL {t.stopLoss}</span>}</td>
             <td className={`tv-tps ${t.takeProfit ? "positive" : ""}`}>{t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map((tp, k) => <span key={k} className="entry-sub">TP{k + 1} {tp}</span>) : "—"}</td>
             <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl)}</b>}</td>
-            <td className={mv ? "positive" : ""}>{mv == null ? "—" : <><b>+{mv}p</b><span className="entry-sub">E1 {LOTS[0]} lot {usd(mv * spec(t.symbol).pip * LOTS[0] * spec(t.symbol).contract)}</span></>}</td>
+            <td className={mv ? "positive" : ""}>{mv == null ? "—" : <><b>+{mv}p</b><span className="entry-sub">All {n} active: {usd(moveUsd(t, mv, n))}</span></>}</td>
             <td className={m?.peak != null && m.peak > 0 ? "positive" : ""}>{m?.peak == null ? "—" : <b>{usd(m.peak)}</b>}</td>
             <td className="tv-runs">{t.runs || "—"}</td>
           </tr>;

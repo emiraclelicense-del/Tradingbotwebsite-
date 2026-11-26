@@ -27,29 +27,20 @@ function filledOf(t: TvTrade) {
   return Math.max(1, Math.min(4, t.filled ?? (lv.length ? Math.max(...lv) : 1)));
 }
 
-/** Max move in our favour from E1 over the whole trade (pips): the chart's own figure, else from the runs of each entry. */
-function maxMoveE1(t: TvTrade) {
-  if (t.maxMove != null) return t.maxMove;
+/** The trade's max move: its biggest entry run (e.g. "E2 +176.8p"), and the profit of all entries open then (E1..that entry). */
+function maxMove(t: TvTrade): { pips: number; lvl: number; usd: number } | null {
   const lims = t.limits.map(Number);
-  if (!lims.length || !Number.isFinite(lims[0])) return null;
-  const { pip } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
-  let best: number | null = null;
+  const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
+  let best: { pips: number; lvl: number; usd: number } | null = null;
   for (const m of t.runs.matchAll(/E(\d)\s*([+-]?\d+(?:\.\d+)?)p/g)) {
-    const k = Number(m[1]) - 1;
-    if (!Number.isFinite(lims[k])) continue;
-    const move = (lims[k] - lims[0]) * dir / pip + Number(m[2]);
-    if (best == null || move > best) best = move;
+    const lvl = Number(m[1]), pips = Number(m[2]);
+    if (lvl < 1 || !Number.isFinite(lims[lvl - 1]) || (best && pips <= best.pips)) continue;
+    const price = lims[lvl - 1] + dir * pips * pip;
+    let usdSum = 0;
+    for (let L = 0; L < lvl; L++) if (Number.isFinite(lims[L])) usdSum += LOTS[L] * (price - lims[L]) * dir * contract;
+    best = { pips, lvl, usd: usdSum };
   }
-  return best == null ? null : Math.max(0, Math.round(best * 10) / 10);
-}
-
-/** Profit of ALL active entries (E1..En, their lots) at the max move price (E1 + move pips). */
-function moveUsd(t: TvTrade, move: number, n: number) {
-  const lims = t.limits.map(Number), { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
-  const price = lims[0] + dir * move * pip;
-  let sum = 0;
-  for (let L = 0; L < Math.min(n, lims.length); L++) if (Number.isFinite(lims[L])) sum += LOTS[L] * (price - lims[L]) * dir * contract;
-  return sum;
+  return best;
 }
 
 function money(t: TvTrade): { pl: number | null; peak: number | null } {
@@ -122,7 +113,7 @@ export default function TvHistoryPage() {
   }, [trades, symbol, tf, days]);
   const count = (r: Result) => shown.filter((t) => t.result === r).length;
   const wins = count("target") + count("be");
-  const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map(maxMoveE1).filter((v): v is number => v != null);
+  const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map((t) => maxMove(t)?.pips).filter((v): v is number => v != null);
   const moneyOf = useMemo(() => new Map(shown.map((t) => [t.key, money(t)])), [shown]);
   const totalPl = shown.reduce((sum, t) => sum + (moneyOf.get(t.key)?.pl ?? 0), 0);
   const avgRun = winMoves.length ? winMoves.reduce((sum, v) => sum + v, 0) / winMoves.length : null;
@@ -152,15 +143,15 @@ export default function TvHistoryPage() {
       <article><span>Fail (SL)</span><strong className="negative">{count("fail")}</strong></article>
       <article><span>Win rate</span><strong>{shown.length ? `${Math.round((wins / shown.length) * 100)}%` : "—"}</strong></article>
       <article><span>Total P/L (1 lot)</span><strong className={totalPl > 0 ? "positive" : totalPl < 0 ? "negative" : ""}>{shown.length ? usd(totalPl) : "—"}</strong></article>
-      <article><span>Avg max move E1 (wins)</span><strong>{avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`}</strong></article>
+      <article><span>Avg max move (wins)</span><strong>{avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`}</strong></article>
     </section>
 
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed</th><th>Trade</th><th>Entries (✓ active) / SL</th><th>TP</th><th>P/L (USD)</th><th>Max move from E1</th><th>High before SL</th><th>Runs (pips from each entry)</th></tr></thead>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed</th><th>Trade</th><th>Entries (✓ active) / SL</th><th>TP</th><th>P/L (USD)</th><th>Max move</th><th>High before SL</th><th>Runs (pips from each entry)</th></tr></thead>
         <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={8}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
-          const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMoveE1(t);
+          const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t);
           return <tr key={t.key}>
             <td><b>{closedText(t.closedAt)}</b><span className="entry-sub">{t.symbol} · {tfLabel(t.tf)}</span></td>
             <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span><span className="cell-stack"><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></span></td>
@@ -169,7 +160,7 @@ export default function TvHistoryPage() {
               {t.stopLoss && <span className="entry-sub negative">SL {t.stopLoss}</span>}</td>
             <td className={`tv-tps ${t.takeProfit ? "positive" : ""}`}>{t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map((tp, k) => <span key={k} className="entry-sub">TP{k + 1} {tp}</span>) : "—"}</td>
             <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl)}</b>}</td>
-            <td className={mv ? "positive" : ""}>{mv == null ? "—" : <><b>+{mv}p</b><span className="entry-sub">All {n} active: {usd(moveUsd(t, mv, n))}</span></>}</td>
+            <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">E1{mv.lvl > 1 ? `–E${mv.lvl}` : ""} open: {usd(mv.usd)}</span></>}</td>
             <td className={m?.peak != null && m.peak > 0 ? "positive" : ""}>{m?.peak == null ? "—" : <b>{usd(m.peak)}</b>}</td>
             <td className="tv-runs">{t.runs || "—"}</td>
           </tr>;

@@ -71,3 +71,22 @@ alter table public.trade_entries drop constraint if exists trade_entries_result_
 alter table public.trade_entries add constraint trade_entries_result_check check (result in ('tp', 'sl', 'be', 'open'));
 -- the EA log API (/api/ea-log) writes with the service_role (secret) key: it needs its own table rights
 grant select, insert, update on public.trade_entries to service_role;
+
+-- ===== TradingView History tab (run this block in the Supabase SQL Editor; safe to run again) =====
+-- One row per TradingView (Pine) trade, filled by /api/tv-sync from the webhook bridge:
+-- "history" alerts (last 31 days, sent when the alert starts) and every live "close" alert.
+create table if not exists public.tv_trades (
+  key text primary key,                 -- symbol|tf|OB id
+  symbol text not null, tf text not null, side text not null check (side in ('buy', 'sell')),
+  closed_at timestamptz not null,
+  result text not null check (result in ('target', 'be', 'worked', 'fail')),
+  best_run numeric, runs text, entry text, stop_loss text,
+  from_history boolean not null default false,  -- true once the chart history (reference) for this trade arrived
+  created_at timestamptz not null default now()
+);
+create index if not exists tv_trades_closed_idx on public.tv_trades (closed_at desc);
+alter table public.tv_trades enable row level security;
+grant select on public.tv_trades to anon, authenticated;
+grant select, insert, update on public.tv_trades to service_role;
+drop policy if exists "Anyone can view TradingView trades" on public.tv_trades;
+create policy "Anyone can view TradingView trades" on public.tv_trades for select using (true);

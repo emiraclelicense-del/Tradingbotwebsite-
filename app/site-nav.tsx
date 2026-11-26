@@ -7,7 +7,6 @@ const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/trade-history", label: "Trade History" },
   { href: "/tv-history", label: "TradingView History" },
-  { href: "/flux-history", label: "Flux OB History" },
 ];
 
 export default function SiteNav() {

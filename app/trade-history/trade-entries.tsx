@@ -236,8 +236,8 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <button className="primary submit" type="submit" disabled={saving}>{saving ? "Saving…" : editing ? "Update trade" : "Save trade"}</button>
     </form>}
 
-    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips / P/L (USD)</th><th>Layers</th><th>Active Entry</th><th>Result</th><th>Comment</th><th>MAE</th><th>MFE</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
-      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 15 : 14}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
+    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips / P/L (USD)</th><th>Layers</th><th>Active Entry</th><th>Result</th><th>Comment</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
+      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 13 : 12}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
         <td>{formatDate(row.date)}</td>
         <td><b>{row.botName}</b></td>
         <td>{row.session ? <span className={`pill session ${row.session}`}>{SESSION_LABELS[row.session]}</span> : "—"}</td>
@@ -250,8 +250,6 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
         <td>{row.activeEntry ? <b>{row.activeEntry}</b> : "—"}</td>
         <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : row.result === "open" ? "open" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>
         <td className="entries-comment-cell" title={row.comment || undefined}>{row.comment || "—"}</td>
-        <td>{row.mae ? <b className="negative">{row.mae}</b> : "—"}</td>
-        <td>{row.mfe ? <b className="positive">{row.mfe}</b> : "—"}</td>
         <td>{row.maxMove != null ? <b>+{row.maxMove} pips</b> : "—"}</td>
         {isAdmin && <td><button className="edit" type="button" onClick={() => startEdit(row)} aria-label={`Edit ${row.botName} trade on ${row.date}`}>Edit</button><button className="delete" onClick={() => removeEntry(row)} aria-label={`Delete ${row.botName} trade on ${row.date}`}>×</button></td>}
       </tr>)}</tbody></table></div>

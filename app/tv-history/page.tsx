@@ -27,18 +27,19 @@ function filledOf(t: TvTrade) {
   return Math.max(1, Math.min(4, t.filled ?? (lv.length ? Math.max(...lv) : 1)));
 }
 
-/** The trade's max move: its biggest entry run (e.g. "E2 +176.8p"), and the profit of all entries open then (E1..that entry). */
+/** The trade's max move: the entry run with the MOST total profit of the entries open then (E1..that entry), e.g. "E2 +176.8p".
+ *  (E1 +0.0p beats E4 +10.2p when E1-E4 open at that E4 peak are still in loss.) */
 function maxMove(t: TvTrade): { pips: number; lvl: number; usd: number } | null {
   const lims = t.limits.map(Number);
   const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
   let best: { pips: number; lvl: number; usd: number } | null = null;
   for (const m of t.runs.matchAll(/E(\d)\s*([+-]?\d+(?:\.\d+)?)p/g)) {
     const lvl = Number(m[1]), pips = Number(m[2]);
-    if (lvl < 1 || !Number.isFinite(lims[lvl - 1]) || (best && pips <= best.pips)) continue;
+    if (lvl < 1 || !Number.isFinite(lims[lvl - 1])) continue;
     const price = lims[lvl - 1] + dir * pips * pip;
     let usdSum = 0;
     for (let L = 0; L < lvl; L++) if (Number.isFinite(lims[L])) usdSum += LOTS[L] * (price - lims[L]) * dir * contract;
-    best = { pips, lvl, usd: usdSum };
+    if (!best || usdSum > best.usd || (usdSum === best.usd && pips > best.pips)) best = { pips, lvl, usd: usdSum };
   }
   return best;
 }

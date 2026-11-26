@@ -30,10 +30,10 @@ const num = (v: string | undefined) => (v && Number.isFinite(Number(v)) ? Number
 const fmt = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? String(v) : null);
 
 // Start of the chart candle a close alert belongs to (the history table shows that time, not the alert time):
-// an alert at a candle close (12:40:02 on M10) -> 12:30; a live alert mid-candle (12:43) -> 12:40.
-function candleOpen(tf: string, unix: number) {
+// an alert at a candle close (12:40:07 on M10, may come some seconds late) -> 12:30; a "(LIVE)" alert mid-candle (12:43) -> 12:40.
+function candleOpen(tf: string, unix: number, live: boolean) {
   const secs = /^\d+$/.test(tf) ? Number(tf) * 60 : 0;
-  return secs > 0 ? Math.floor((unix - 5) / secs) * secs : unix;
+  return secs > 0 ? Math.floor(unix / secs) * secs - (live ? 0 : secs) : unix;
 }
 
 function closeResult(msg: string) {
@@ -94,7 +94,7 @@ async function sync() {
       const limits = Array.isArray(a.limits) ? a.limits.filter((v): v is number => typeof v === "number") : [];
       const tps = Array.isArray(a.tp) ? a.tp.filter((v): v is number => typeof v === "number") : [];
       const runs = msg.includes("RUNS ") ? msg.slice(msg.indexOf("RUNS ") + 5).trim() : null;
-      rows.set(k, merge(rows.get(k), { key: k, symbol, tf, side: a.side, closed_at: new Date(candleOpen(tf, env.time) * 1000).toISOString(), result: closeResult(msg),
+      rows.set(k, merge(rows.get(k), { key: k, symbol, tf, side: a.side, closed_at: new Date(candleOpen(tf, env.time, /\(LIVE\)/i.test(msg)) * 1000).toISOString(), result: closeResult(msg),
         best_run: null, runs, entry: limits.length ? limits.join(", ") : null, stop_loss: firstSl.get(k) ?? fmt(a.sl), take_profit: tps.length ? tps.join(" / ") : null,
         tp_hit: /TARGET/i.test(msg) ? tps.length : Number(/AFTER TP(\d+)/i.exec(msg)?.[1] ?? 0), filled: typeof a.filled === "number" ? a.filled : null, max_move: null, max_against: num(/AGAINST E\d+ ([\d.]+)p/i.exec(msg)?.[1]), from_history: false }));
     }

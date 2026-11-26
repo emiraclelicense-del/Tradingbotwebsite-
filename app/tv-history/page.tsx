@@ -149,7 +149,7 @@ export default function TvHistoryPage() {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed</th><th>Trade</th><th>Entries (✓ active) / SL</th><th>TP</th><th>P/L (USD)</th><th>Max move</th><th>High before SL</th><th>Runs (pips from each entry)</th></tr></thead>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed / Chart</th><th>Side / Result</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>Max Move / Profit</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
         <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={8}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t);
           return <tr key={t.key}>

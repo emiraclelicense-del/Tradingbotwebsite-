@@ -64,6 +64,17 @@ async function sync() {
     return Response.json({ error: "bridge not reachable" }, { status: 502 });
   }
 
+  // The first Flux script version (26 Nov) sent its history WITHOUT "src":"flux": an item without src that is
+  // exactly the same as an item of a Flux history (same chart) is that Flux trade, not a LuxAlgo one -> skipped.
+  const fluxItems = new Set<string>();
+  for (const line of text.split("\n")) {
+    try {
+      const env = JSON.parse(line), a = env.event === "message" && env.message ? JSON.parse(env.message) : null;
+      if (a && a.src === "flux" && a.event === "history" && typeof a.trades === "string" && typeof a.tf === "string")
+        for (const item of a.trades.split(";")) fluxItems.add(`${a.tf}|${item}`);
+    } catch { /* not JSON */ }
+  }
+
   const rows = new Map<string, Row>();
   // original SL of each setup (its "limits" / "fill" alerts): a close alert carries the trailed BE SL instead
   const firstSl = new Map<string, string>();
@@ -82,6 +93,7 @@ async function sync() {
 
     if (a.event === "history" && typeof a.trades === "string") {
       for (const item of a.trades.split(";")) {
+        if (!flux && fluxItems.has(`${tf}|${item}`)) continue;
         const [t, code, side, best, runs, obId, lims, sl, tps, hit, fil, move, against, trd] = item.split("|");
         const unix = Number(t);
         if (!Number.isFinite(unix) || !CODES[code] || (side !== "1" && side !== "-1")) continue;

@@ -261,20 +261,18 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <button className="primary submit" type="submit" disabled={saving}>{saving ? "Saving…" : editing ? "Update trade" : "Save trade"}</button>
     </form>}
 
-    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips</th><th>P/L (USD)</th><th>Layers</th><th>Active Entry</th><th>SL</th><th>TP</th><th>Result</th><th>Comment</th><th>Reason</th><th>MAE</th><th>MFE</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
-      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 19 : 18}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
+    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips</th><th>P/L (USD)</th><th>Layers</th><th>Active Entry</th><th>Result</th><th>Comment</th><th>Reason</th><th>MAE</th><th>MFE</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
+      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 17 : 16}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
         <td>{formatDate(row.date)}</td>
         <td><b>{row.botName}</b></td>
         <td>{row.session ? <span className={`pill session ${row.session}`}>{SESSION_LABELS[row.session]}</span> : "—"}</td>
         <td>{row.trend ? <span className={`pill ${trendTone(row.trend)}`}>{row.trend}</span> : "—"}</td>
         <td><span className={`pill ${row.side === "buy" ? "gain" : "loss"}`}>{row.side === "buy" ? "Buy" : "Sell"}</span></td>
-        <td><b>{row.entry}</b></td>
+        <td><b>{row.entry || "—"}</b>{row.stopLoss && <span className="entry-sub negative">SL {row.stopLoss}</span>}{row.takeProfit && <span className="entry-sub positive">TP {row.takeProfit}</span>}</td>
         <td className={row.pips == null ? "" : row.pips > 0 ? "positive" : row.pips < 0 ? "negative" : ""}>{row.pips == null ? "—" : <b>{row.pips > 0 ? "+" : ""}{row.pips} pips</b>}</td>
         <td className={row.profitUsd == null ? "" : row.profitUsd > 0 ? "positive" : row.profitUsd < 0 ? "negative" : ""}>{row.profitUsd == null ? "—" : <b>{signedUsd(row.profitUsd)}</b>}</td>
         <td>{row.layers ?? "—"}</td>
         <td>{row.activeEntry ? <b>{row.activeEntry}</b> : "—"}</td>
-        <td className={row.stopLoss ? "negative" : ""}>{row.stopLoss || "—"}</td>
-        <td className={row.takeProfit ? "positive" : ""}>{row.takeProfit || "—"}</td>
         <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : row.result === "open" ? "open" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>
         <td className="entries-comment-cell" title={row.comment || undefined}>{row.comment || "—"}</td>
         <td>{row.proofUrl ? <a className="proof-link" href={row.proofUrl} target="_blank" rel="noopener noreferrer">View Proof</a>

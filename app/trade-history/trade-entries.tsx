@@ -77,7 +77,6 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState("");
-  const [uploadingId, setUploadingId] = useState("");
   /** Trade being edited in the form, or null when the form adds a new trade. */
   const [editing, setEditing] = useState<TradeEntry | null>(null);
 
@@ -192,30 +191,6 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
     if (editing?.id === row.id) closeForm();
   }
 
-  async function addProofToEntry(row: TradeEntry, input: HTMLInputElement) {
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
-    const problem = checkProofFile(file);
-    if (problem) { setError(problem); return; }
-    setUploadingId(row.id);
-    try {
-      const url = await uploadProof(file, row.date || today());
-      const { error: updateError } = await supabase.from("trade_entries").update({ proof_url: url }).eq("id", row.id);
-      if (updateError) {
-        const path = proofPath(url);
-        if (path) await supabase.storage.from(PROOF_BUCKET).remove([path]);
-        throw updateError;
-      }
-      setEntries((current) => current.map((item) => item.id === row.id ? { ...item, proofUrl: url } : item));
-      setError("");
-    } catch {
-      setError("Could not upload the proof image. Please sign in as admin and try again.");
-    } finally {
-      setUploadingId("");
-    }
-  }
-
   return <section className="table-card entries-card" aria-labelledby="trade-entries-heading">
     <div className="table-title"><div><p className="eyebrow">TRADE PERFORMANCE</p><h2 id="trade-entries-heading">Where each bot entered &amp; the result</h2></div>
       <span>{visibleEntries.length} trades · {decided ? `${((summary.wins / decided) * 100).toFixed(0)}% win rate · ` : ""}<b className={summary.pips >= 0 ? "positive" : "negative"}>{summary.pips >= 0 ? "+" : ""}{summary.pips} pips</b> · <b className={summary.usd >= 0 ? "positive" : "negative"}>{signedUsd(summary.usd)}</b> · {scopeLabel}</span></div>
@@ -261,8 +236,8 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
       <button className="primary submit" type="submit" disabled={saving}>{saving ? "Saving…" : editing ? "Update trade" : "Save trade"}</button>
     </form>}
 
-    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips / P/L (USD)</th><th>Layers</th><th>Active Entry</th><th>Result</th><th>Comment</th><th>Reason</th><th>MAE</th><th>MFE</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
-      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 16 : 15}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
+    <div className="table-wrap"><table className="entries-table"><thead><tr><th>Date</th><th>Bot</th><th>Session</th><th>Trend</th><th>Type</th><th>Entry</th><th>Pips / P/L (USD)</th><th>Layers</th><th>Active Entry</th><th>Result</th><th>Comment</th><th>MAE</th><th>MFE</th><th>Max Move</th>{isAdmin && <th></th>}</tr></thead>
+      <tbody>{pageEntries.length === 0 ? <tr><td className="empty" colSpan={isAdmin ? 15 : 14}>No trades found for {scopeLabel}.</td></tr> : pageEntries.map((row) => <tr key={row.id}>
         <td>{formatDate(row.date)}</td>
         <td><b>{row.botName}</b></td>
         <td>{row.session ? <span className={`pill session ${row.session}`}>{SESSION_LABELS[row.session]}</span> : "—"}</td>
@@ -275,9 +250,6 @@ export default function TradeEntries({ isAdmin, botNames, inScope, scopeLabel }:
         <td>{row.activeEntry ? <b>{row.activeEntry}</b> : "—"}</td>
         <td><span className={`pill ${row.result === "tp" ? "gain" : row.result === "sl" ? "loss" : row.result === "open" ? "open" : "be"}`}>{OUTCOME_LABELS[row.result]}</span></td>
         <td className="entries-comment-cell" title={row.comment || undefined}>{row.comment || "—"}</td>
-        <td>{row.proofUrl ? <a className="proof-link" href={row.proofUrl} target="_blank" rel="noopener noreferrer">View Proof</a>
-          : isAdmin ? <label className={`proof-link proof-add${uploadingId === row.id ? " busy" : ""}`}>{uploadingId === row.id ? "Uploading…" : "+ Upload Proof"}<input type="file" accept={PROOF_TYPES.join(",")} disabled={Boolean(uploadingId)} onChange={(event) => addProofToEntry(row, event.currentTarget)} /></label>
-          : <span className="pill loss">No Screenshot</span>}</td>
         <td>{row.mae ? <b className="negative">{row.mae}</b> : "—"}</td>
         <td>{row.mfe ? <b className="positive">{row.mfe}</b> : "—"}</td>
         <td>{row.maxMove != null ? <b>+{row.maxMove} pips</b> : "—"}</td>

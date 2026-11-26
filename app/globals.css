@@ -87,3 +87,4 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .history-filters:has(+ .tv-stats){grid-template-columns:repeat(3,minmax(0,1fr))}
 .tv-table td.tv-runs{white-space:normal;min-width:220px;color:#c4d0cd;font:12px 'DM Mono',monospace}
 @media(max-width:1050px){.tv-stats{grid-template-columns:repeat(3,1fr)}.history-filters:has(+ .tv-stats){grid-template-columns:1fr}}
+.tv-table td.tv-tps .entry-sub{margin-top:0;line-height:1.5}

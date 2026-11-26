@@ -5,7 +5,7 @@ import SiteNav from "../site-nav";
 import { supabase } from "../supabase";
 
 type Result = "target" | "be" | "worked" | "fail";
-type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; entry: string; stopLoss: string };
+type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string };
 
 const RESULT_LABELS: Record<Result, string> = { target: "TARGET", be: "BE after TP", worked: "WORKED then SL", fail: "FAIL (SL)" };
 const RESULT_TONE: Record<Result, string> = { target: "gain", be: "open", worked: "be", fail: "loss" };
@@ -36,7 +36,8 @@ export default function TvHistoryPage() {
       setTrades((data ?? []).map((row) => ({
         key: String(row.key), symbol: String(row.symbol), tf: String(row.tf), side: row.side === "sell" ? "sell" : "buy", closedAt: String(row.closed_at),
         result: (["target", "be", "worked", "fail"].includes(row.result) ? row.result : "fail") as Result,
-        bestRun: row.best_run == null ? null : Number(row.best_run), runs: row.runs ? String(row.runs) : "", entry: row.entry ? String(row.entry) : "", stopLoss: row.stop_loss ? String(row.stop_loss) : "",
+        bestRun: row.best_run == null ? null : Number(row.best_run), runs: row.runs ? String(row.runs) : "", limits: row.entry ? String(row.entry).split(/\s*,\s*/) : [], stopLoss: row.stop_loss ? String(row.stop_loss) : "",
+        takeProfit: row.take_profit ? String(row.take_profit) : "",
       })));
       setLoading(false);
     }
@@ -84,16 +85,18 @@ export default function TvHistoryPage() {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed</th><th>Symbol</th><th>TF</th><th>Side</th><th>Result</th><th>Runs (pips from each entry)</th><th>Best run</th><th>Entry / SL</th></tr></thead>
-        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={8}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => <tr key={t.key}>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed</th><th>Symbol</th><th>TF</th><th>Side</th><th>Result</th><th>E1</th><th>E2</th><th>E3</th><th>E4</th><th>SL</th><th>TP</th><th>Runs (pips from each entry)</th><th>Best run</th></tr></thead>
+        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={13}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => <tr key={t.key}>
           <td>{closedText(t.closedAt)}</td>
           <td><b>{t.symbol}</b></td>
           <td>{tfLabel(t.tf)}</td>
           <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span></td>
           <td><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></td>
+          {[0, 1, 2, 3].map((k) => <td key={k}>{t.limits[k] ? <b>{t.limits[k]}</b> : "—"}</td>)}
+          <td className={t.stopLoss ? "negative" : ""}>{t.stopLoss || "—"}</td>
+          <td className={`tv-tps ${t.takeProfit ? "positive" : ""}`}>{t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map((tp, k) => <span key={k} className="entry-sub">TP{k + 1} {tp}</span>) : "—"}</td>
           <td className="tv-runs">{t.runs || "—"}</td>
           <td className={t.bestRun == null ? "" : t.bestRun > 0 ? "positive" : ""}>{t.bestRun == null ? "—" : <b>{t.bestRun > 0 ? "+" : ""}{t.bestRun}p</b>}</td>
-          <td>{t.entry ? <><b>{t.entry}</b>{t.stopLoss && <span className="entry-sub negative">SL {t.stopLoss}</span>}</> : "—"}</td>
         </tr>)}</tbody></table></div>
     </section>
   </main>;

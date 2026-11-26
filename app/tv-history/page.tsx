@@ -5,7 +5,7 @@ import SiteNav from "../site-nav";
 import { supabase } from "../supabase";
 
 type Result = "target" | "be" | "worked" | "fail";
-type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string; tpHit: number | null; filled: number | null };
+type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string; tpHit: number | null; filled: number | null; maxMove: number | null };
 
 const RESULT_LABELS: Record<Result, string> = { target: "TARGET", be: "BE after TP", worked: "WORKED then SL", fail: "FAIL (SL)" };
 const RESULT_TONE: Record<Result, string> = { target: "gain", be: "open", worked: "be", fail: "loss" };
@@ -21,12 +21,34 @@ const spec = (symbol: string) => /XAU|GOLD/.test(symbol) ? { pip: 0.1, contract:
 const usd = (v: number) => `${v < 0 ? "-" : "+"}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** Profit of a TradingView trade with the lots above, and (SL trades) the highest open profit it had before the SL. */
+/** Entries filled (1..4): stored count, else the deepest entry in the runs. */
+function filledOf(t: TvTrade) {
+  const lv = [...t.runs.matchAll(/E(\d)/g)].map((m) => Number(m[1]));
+  return Math.max(1, Math.min(4, t.filled ?? (lv.length ? Math.max(...lv) : 1)));
+}
+
+/** Max move in our favour from E1 over the whole trade (pips): the chart's own figure, else from the runs of each entry. */
+function maxMoveE1(t: TvTrade) {
+  if (t.maxMove != null) return t.maxMove;
+  const lims = t.limits.map(Number);
+  if (!lims.length || !Number.isFinite(lims[0])) return null;
+  const { pip } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
+  let best: number | null = null;
+  for (const m of t.runs.matchAll(/E(\d)\s*([+-]?\d+(?:\.\d+)?)p/g)) {
+    const k = Number(m[1]) - 1;
+    if (!Number.isFinite(lims[k])) continue;
+    const move = (lims[k] - lims[0]) * dir / pip + Number(m[2]);
+    if (best == null || move > best) best = move;
+  }
+  return best == null ? null : Math.max(0, Math.round(best * 10) / 10);
+}
+
 function money(t: TvTrade): { pl: number | null; peak: number | null } {
   const lims = t.limits.map(Number), tps = t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map(Number).slice(0, 4) : [], sl = Number(t.stopLoss);
   if (lims.length < 1 || lims.some((v) => !Number.isFinite(v))) return { pl: null, peak: null };
   const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
   const runs = [...t.runs.matchAll(/E(\d)\s*([+-]?\d+(?:\.\d+)?)p/g)].map((m) => ({ lvl: Number(m[1]), run: Number(m[2]) }));
-  const n = Math.max(1, Math.min(lims.length, t.filled ?? (runs.length ? Math.max(...runs.map((r) => r.lvl)) : 1)));
+  const n = Math.min(lims.length, filledOf(t));
   const ntp = tps.length;
   const value = (L: number, exit: number) => LOTS[L] * (exit - lims[L]) * dir * contract;
   let pl: number | null = 0;
@@ -76,7 +98,7 @@ export default function TvHistoryPage() {
         key: String(row.key), symbol: String(row.symbol), tf: String(row.tf), side: row.side === "sell" ? "sell" : "buy", closedAt: String(row.closed_at),
         result: (["target", "be", "worked", "fail"].includes(row.result) ? row.result : "fail") as Result,
         bestRun: row.best_run == null ? null : Number(row.best_run), runs: row.runs ? String(row.runs) : "", limits: row.entry ? String(row.entry).split(/\s*,\s*/) : [], stopLoss: row.stop_loss ? String(row.stop_loss) : "",
-        takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled),
+        takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled), maxMove: row.max_move == null ? null : Number(row.max_move),
       })));
       setLoading(false);
     }
@@ -127,18 +149,22 @@ export default function TvHistoryPage() {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed</th><th>Symbol</th><th>TF</th><th>Side</th><th>Result</th><th>E1</th><th>E2</th><th>E3</th><th>E4</th><th>SL</th><th>TP</th><th>P/L (USD)</th><th>High before SL</th><th>Runs (pips from each entry)</th><th>Best run</th></tr></thead>
-        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={15}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => <tr key={t.key}>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed</th><th>Symbol</th><th>TF</th><th>Side</th><th>Result</th><th>Active</th><th>E1</th><th>E2</th><th>E3</th><th>E4</th><th>SL</th><th>TP</th><th>P/L (USD)</th><th>Max move from E1</th><th>High before SL</th><th>Runs (pips from each entry)</th><th>Best run</th></tr></thead>
+        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={17}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => <tr key={t.key}>
           <td>{closedText(t.closedAt)}</td>
           <td><b>{t.symbol}</b></td>
           <td>{tfLabel(t.tf)}</td>
           <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span></td>
           <td><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></td>
-          {[0, 1, 2, 3].map((k) => <td key={k}>{t.limits[k] ? <b>{t.limits[k]}</b> : "—"}</td>)}
+          {(() => { const n = filledOf(t); return <>
+            <td><span className="pill tv-active">{n === 1 ? "E1" : `E1–E${n}`} ({n}/4)</span></td>
+            {[0, 1, 2, 3].map((k) => <td key={k} className={k < n ? "tv-lvl-on" : "tv-lvl-off"}>{t.limits[k] ? <>{k < n && <span className="tv-tick">✓ </span>}<b>{t.limits[k]}</b></> : "—"}</td>)}
+          </>; })()}
           <td className={t.stopLoss ? "negative" : ""}>{t.stopLoss || "—"}</td>
           <td className={`tv-tps ${t.takeProfit ? "positive" : ""}`}>{t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map((tp, k) => <span key={k} className="entry-sub">TP{k + 1} {tp}</span>) : "—"}</td>
           {(() => { const m = moneyOf.get(t.key); return <>
             <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl)}</b>}</td>
+            {(() => { const mv = maxMoveE1(t); return <td className={mv ? "positive" : ""}>{mv == null ? "—" : <><b>+{mv}p</b><span className="entry-sub">E1 {LOTS[0]} lot: {usd(mv * spec(t.symbol).pip * LOTS[0] * spec(t.symbol).contract)}</span></>}</td>; })()}
             <td className={m?.peak != null && m.peak > 0 ? "positive" : ""}>{m?.peak == null ? "—" : <b>{usd(m.peak)}</b>}</td>
           </>; })()}
           <td className="tv-runs">{t.runs || "—"}</td>

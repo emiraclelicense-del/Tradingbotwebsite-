@@ -108,12 +108,12 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   useEffect(() => { document.body.dataset.theme = "dark"; }, []);
 
   useEffect(() => {
+    let alive = true;
     async function load() {
-      // pull the newest TradingView alerts from the bridge first (does not block the page if it fails)
-      await fetch("/api/tv-sync", { method: "POST" }).catch(() => undefined);
       const from = new Date(Date.now() - 31 * 86400000).toISOString();
       const base = supabase.from("tv_trades").select("*").gte("closed_at", from);
       const { data, error: loadError } = await (flux ? base.like("key", "FLUX|%") : base.not("key", "like", "FLUX|%")).order("closed_at", { ascending: false }).limit(2000);
+      if (!alive) return;
       if (loadError) setError("Could not load the TradingView history.");
       // the live account trades of the same period (MT5 EA -> Trade History), matched by chart + order block
       const { data: eaRows } = flux ? { data: [] } : await supabase.from("trade_entries").select("ea_key, bot_name, result, pips, profit_usd, trend").not("ea_key", "is", null).gte("created_at", new Date(Date.now() - 33 * 86400000).toISOString()).limit(2000);
@@ -125,6 +125,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
         const k = liveKey(lt.tf, lt.obId);
         byKey.set(k, [...(byKey.get(k) ?? []), lt]);
       }
+      if (!alive) return;
       setLive(byKey);
       setTrades((data ?? []).map((row) => ({
         key: String(row.key), symbol: String(row.symbol), tf: String(row.tf), side: row.side === "sell" ? "sell" : "buy", closedAt: String(row.closed_at),
@@ -134,7 +135,9 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       })));
       setLoading(false);
     }
-    load();
+    // show what is stored at once, then pull the newest TradingView alerts from the bridge (a few seconds) and refresh
+    load().then(() => fetch("/api/tv-sync", { method: "POST" })).catch(() => undefined).then(() => (alive ? load() : undefined));
+    return () => { alive = false; };
   }, [flux]);
 
   const symbols = useMemo(() => [...new Set(trades.map((t) => t.symbol))].sort(), [trades]);

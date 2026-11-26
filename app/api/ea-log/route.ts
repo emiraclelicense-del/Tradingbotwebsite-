@@ -45,20 +45,22 @@ export async function POST(request: Request) {
     active_entry: text(body.active_entry, 40), stop_loss: text(body.stop_loss, 40), take_profit: text(body.take_profit, 60),
     result, pips: num(body.pips), profit_usd: num(body.profit_usd),
   };
+  // EA trend ("With trend" / "Against trend", H1 EMA 50/200 at the first fill)
+  const trend = text(body.trend, 60);
 
   const db = createClient(url, key, { auth: { persistSession: false } });
-  const { data: existing, error: findError } = await db.from("trade_entries").select("id, result").eq("ea_key", eaKey).maybeSingle();
+  const { data: existing, error: findError } = await db.from("trade_entries").select("id, result, trend").eq("ea_key", eaKey).maybeSingle();
   if (findError) return Response.json({ error: findError.message }, { status: 500 });
 
   if (!existing) {
-    const { error } = await db.from("trade_entries").insert({ ...row, comment: text(body.comment, 1000) });
+    const { error } = await db.from("trade_entries").insert({ ...row, trend, comment: text(body.comment, 1000) });
     if (error) return Response.json({ error: error.message }, { status: 500 });
     return Response.json({ ok: true, action: "inserted" });
   }
   // a late / repeated "open" never turns a finished trade back into a running one
   if (event === "open" && existing.result !== "open") return Response.json({ ok: true, action: "ignored" });
-  // comment, proof, trend, MAE / MFE edited by the admin stay as they are
-  const { error } = await db.from("trade_entries").update(row).eq("id", existing.id);
+  // comment, proof, MAE / MFE edited by the admin stay as they are; the trend is only filled when still empty
+  const { error } = await db.from("trade_entries").update(existing.trend || !trend ? row : { ...row, trend }).eq("id", existing.id);
   if (error) return Response.json({ error: error.message }, { status: 500 });
   return Response.json({ ok: true, action: "updated" });
 }

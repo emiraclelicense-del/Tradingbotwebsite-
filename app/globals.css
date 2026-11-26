@@ -83,7 +83,7 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .entries-table .cell-stack{margin-top:2px}
 .entries-table .proof-link{font-size:12px}
 /* TradingView History tab */
-.tv-stats{grid-template-columns:repeat(7,1fr)}
+.tv-stats{grid-template-columns:repeat(8,1fr)}
 .history-filters:has(+ .tv-stats){grid-template-columns:repeat(3,minmax(0,1fr))}
 .tv-table td.tv-runs{white-space:normal;min-width:220px;color:#c4d0cd;font:12px 'DM Mono',monospace}
 @media(max-width:1050px){.tv-stats{grid-template-columns:repeat(3,1fr)}.history-filters:has(+ .tv-stats){grid-template-columns:1fr}}

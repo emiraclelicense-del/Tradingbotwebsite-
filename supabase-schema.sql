@@ -91,3 +91,5 @@ grant select, insert, update on public.tv_trades to service_role;
 drop policy if exists "Anyone can view TradingView trades" on public.tv_trades;
 create policy "Anyone can view TradingView trades" on public.tv_trades for select using (true);
 alter table public.tv_trades add column if not exists take_profit text;   -- TP1 / TP2 / ... of the TradingView setup
+alter table public.tv_trades add column if not exists tp_hit integer;     -- TPs hit before the trade ended
+alter table public.tv_trades add column if not exists filled integer;     -- entries filled (1 = E1 .. 4 = E1-E4)

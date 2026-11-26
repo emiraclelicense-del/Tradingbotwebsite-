@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 // Webhook bridge -> tv_trades (TradingView History tab).
 // Reads the bridge (env TV_BRIDGE_URL = "http://<server>/<topic>", kept secret: the same topic feeds the MT5 EAs)
 // and stores every closed Pine trade:
-//   "history" alerts : {"event":"history","symbol":"XAUUSD","tf":"5","trades":"<unix>|<code>|<side>|<best>|<runs>|<obId>|<E1,E2,E3,E4>|<SL>|<TP1/TP2/..>;..."}
+//   "history" alerts : {"event":"history","symbol":"XAUUSD","tf":"5","trades":"<unix>|<code>|<side>|<best>|<runs>|<obId>|<E1,E2,E3,E4>|<SL>|<TP1/TP2/..>|<TPs hit>|<entries filled>;..."}
 //                      code 2 target, 1 BE after TP, 3 worked then SL, 0 fail
 //   "close" alerts   : the live end of a trade, e.g. msg "TP2 ✓ TARGET (LIVE)", "SL | FAIL | RUNS E1 +8.5p"
 // Called by the TradingView History page on load and once a day by the Vercel cron. Safe to call any time.
@@ -11,7 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Row = { key: string; symbol: string; tf: string; side: string; closed_at: string; result: string; best_run: number | null; runs: string | null; entry: string | null; stop_loss: string | null; take_profit: string | null; from_history: boolean };
+type Row = { key: string; symbol: string; tf: string; side: string; closed_at: string; result: string; best_run: number | null; runs: string | null; entry: string | null; stop_loss: string | null; take_profit: string | null; tp_hit: number | null; filled: number | null; from_history: boolean };
 
 // The chart history (Pine) is the reference for time / result / runs; a live close only adds the entry and SL,
 // and fills the rest while the history for that trade has not arrived yet.
@@ -20,10 +20,12 @@ function merge(base: Row | undefined, add: Row): Row {
   const hist = add.from_history ? add : base.from_history ? base : add;
   const other = hist === add ? base : add;
   return { ...hist, best_run: hist.best_run ?? other.best_run, runs: hist.runs ?? other.runs,
-    entry: add.entry ?? base.entry, stop_loss: add.stop_loss ?? base.stop_loss, take_profit: add.take_profit ?? base.take_profit, from_history: base.from_history || add.from_history };
+    entry: add.entry ?? base.entry, stop_loss: add.stop_loss ?? base.stop_loss, take_profit: add.take_profit ?? base.take_profit,
+    tp_hit: hist.tp_hit ?? other.tp_hit, filled: hist.filled ?? other.filled, from_history: base.from_history || add.from_history };
 }
 
 const CODES: Record<string, string> = { "2": "target", "1": "be", "3": "worked", "0": "fail" };
+const int = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) : null);
 const fmt = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? String(v) : null);
 
 function closeResult(msg: string) {
@@ -61,13 +63,13 @@ async function sync() {
 
     if (a.event === "history" && typeof a.trades === "string") {
       for (const item of a.trades.split(";")) {
-        const [t, code, side, best, runs, obId, lims, sl, tps] = item.split("|");
+        const [t, code, side, best, runs, obId, lims, sl, tps, hit, fil] = item.split("|");
         const unix = Number(t);
         if (!Number.isFinite(unix) || !CODES[code] || (side !== "1" && side !== "-1")) continue;
         const k = `${symbol}|${tf}|${obId || `t${unix}`}`;
         rows.set(k, merge(rows.get(k), { key: k, symbol, tf, side: side === "1" ? "buy" : "sell", closed_at: new Date(unix * 1000).toISOString(), result: CODES[code],
           best_run: best ? Number(best) : null, runs: runs || null, entry: lims ? lims.split(",").join(", ") : null, stop_loss: sl || null,
-          take_profit: tps ? tps.split("/").join(" / ") : null, from_history: true }));
+          take_profit: tps ? tps.split("/").join(" / ") : null, tp_hit: int(hit), filled: int(fil), from_history: true }));
       }
       continue;
     }
@@ -78,14 +80,15 @@ async function sync() {
       const tps = Array.isArray(a.tp) ? a.tp.filter((v): v is number => typeof v === "number") : [];
       const runs = msg.includes("RUNS ") ? msg.slice(msg.indexOf("RUNS ") + 5).trim() : null;
       rows.set(k, merge(rows.get(k), { key: k, symbol, tf, side: a.side, closed_at: new Date(env.time * 1000).toISOString(), result: closeResult(msg),
-        best_run: null, runs, entry: limits.length ? limits.join(", ") : null, stop_loss: fmt(a.sl), take_profit: tps.length ? tps.join(" / ") : null, from_history: false }));
+        best_run: null, runs, entry: limits.length ? limits.join(", ") : null, stop_loss: fmt(a.sl), take_profit: tps.length ? tps.join(" / ") : null,
+        tp_hit: /TARGET/i.test(msg) ? tps.length : Number(/AFTER TP(\d+)/i.exec(msg)?.[1] ?? 0), filled: typeof a.filled === "number" ? a.filled : null, from_history: false }));
     }
   }
 
   // merge with what is stored already (an older sync may hold the history or the entry of the same trade)
   const keys = [...rows.keys()];
   for (let i = 0; i < keys.length; i += 200) {
-    const { data, error } = await db.from("tv_trades").select("key, symbol, tf, side, closed_at, result, best_run, runs, entry, stop_loss, take_profit, from_history").in("key", keys.slice(i, i + 200));
+    const { data, error } = await db.from("tv_trades").select("key, symbol, tf, side, closed_at, result, best_run, runs, entry, stop_loss, take_profit, tp_hit, filled, from_history").in("key", keys.slice(i, i + 200));
     if (error) return Response.json({ error: error.message }, { status: 500 });
     for (const old of (data ?? []) as Row[]) rows.set(old.key, merge(old, rows.get(old.key)!));
   }

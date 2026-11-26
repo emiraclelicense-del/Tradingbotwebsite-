@@ -5,7 +5,7 @@ import SiteNav from "../site-nav";
 import { supabase } from "../supabase";
 
 type Result = "target" | "be" | "worked" | "fail";
-type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string; tpHit: number | null; filled: number | null; maxMove: number | null; maxAgainst: number | null };
+type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string; tpHit: number | null; filled: number | null; maxMove: number | null; maxAgainst: number | null; trend: string | null };
 
 const RESULT_LABELS: Record<Result, string> = { target: "TARGET", be: "BE after TP", worked: "WORKED then SL", fail: "FAIL (SL)" };
 const RESULT_TONE: Record<Result, string> = { target: "gain", be: "open", worked: "be", fail: "loss" };
@@ -86,6 +86,11 @@ function money(t: TvTrade): { pl: number | null; peak: number | null } {
   return { pl, peak };
 }
 
+/** The same setup on the live MT5 account (Trade History): EA key "<account>_<magic>_<M10>_<OB id>_<setup>" <-> TradingView "XAUUSD|10|<OB id>". */
+type LiveTrade = { tf: string; obId: string; account: string; result: string; pips: number | null; usd: number | null; trend: string | null };
+const liveKey = (tf: string, obId: string) => `${tf}|${obId}`;
+const LIVE_RESULT: Record<string, string> = { tp: "TP", sl: "SL", be: "BE", open: "Running" };
+
 // always Pakistan time (PKT, UTC+5), whatever the viewer's computer is set to
 const closedText = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Karachi" }) + " PKT";
 
@@ -96,6 +101,7 @@ export default function TvHistoryPage() {
   const [symbol, setSymbol] = useState("all");
   const [tf, setTf] = useState("all");
   const [days, setDays] = useState(31);
+  const [live, setLive] = useState<Map<string, LiveTrade[]>>(new Map());
 
   useEffect(() => { document.body.dataset.theme = "dark"; }, []);
 
@@ -106,11 +112,22 @@ export default function TvHistoryPage() {
       const from = new Date(Date.now() - 31 * 86400000).toISOString();
       const { data, error: loadError } = await supabase.from("tv_trades").select("*").gte("closed_at", from).order("closed_at", { ascending: false }).limit(2000);
       if (loadError) setError("Could not load the TradingView history.");
+      // the live account trades of the same period (MT5 EA -> Trade History), matched by chart + order block
+      const { data: eaRows } = await supabase.from("trade_entries").select("ea_key, bot_name, result, pips, profit_usd, trend").not("ea_key", "is", null).gte("created_at", new Date(Date.now() - 33 * 86400000).toISOString()).limit(2000);
+      const byKey = new Map<string, LiveTrade[]>();
+      for (const r of eaRows ?? []) {
+        const parts = String(r.ea_key).split("_"), m = /^M(\d+)$/.exec(parts[2] ?? "");
+        if (parts.length < 5 || !m) continue;
+        const lt: LiveTrade = { tf: m[1], obId: parts[3], account: String(r.bot_name ?? parts[0]).replace(/^.*\((.*)\)$/, "$1"), result: String(r.result), pips: r.pips == null ? null : Number(r.pips), usd: r.profit_usd == null ? null : Number(r.profit_usd), trend: r.trend ? String(r.trend) : null };
+        const k = liveKey(lt.tf, lt.obId);
+        byKey.set(k, [...(byKey.get(k) ?? []), lt]);
+      }
+      setLive(byKey);
       setTrades((data ?? []).map((row) => ({
         key: String(row.key), symbol: String(row.symbol), tf: String(row.tf), side: row.side === "sell" ? "sell" : "buy", closedAt: String(row.closed_at),
         result: (["target", "be", "worked", "fail"].includes(row.result) ? row.result : "fail") as Result,
         bestRun: row.best_run == null ? null : Number(row.best_run), runs: row.runs ? String(row.runs) : "", limits: row.entry ? String(row.entry).split(/\s*,\s*/) : [], stopLoss: row.stop_loss ? String(row.stop_loss) : "",
-        takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled), maxMove: row.max_move == null ? null : Number(row.max_move), maxAgainst: row.max_against == null ? null : Number(row.max_against),
+        takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled), maxMove: row.max_move == null ? null : Number(row.max_move), maxAgainst: row.max_against == null ? null : Number(row.max_against), trend: row.trend ? String(row.trend) : null,
       })));
       setLoading(false);
     }
@@ -128,6 +145,9 @@ export default function TvHistoryPage() {
   const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map((t) => maxMove(t)?.pips).filter((v): v is number => v != null);
   const moneyOf = useMemo(() => new Map(shown.map((t) => [t.key, money(t)])), [shown]);
   const totalPl = shown.reduce((sum, t) => sum + (moneyOf.get(t.key)?.pl ?? 0), 0);
+  const liveOf = (t: TvTrade) => /XAU|GOLD/.test(t.symbol) ? live.get(liveKey(t.tf, t.key.split("|")[2] ?? "")) ?? [] : [];
+  const liveShown = shown.flatMap(liveOf);
+  const liveTotal = liveShown.reduce((sum, l) => sum + (l.usd ?? 0), 0);
   const avgRun = winMoves.length ? winMoves.reduce((sum, v) => sum + v, 0) / winMoves.length : null;
 
   return <main className="dark-theme">
@@ -155,23 +175,27 @@ export default function TvHistoryPage() {
       <article><span>Fail (SL)</span><strong className="negative">{count("fail")}</strong></article>
       <article><span>Win rate</span><strong>{shown.length ? `${Math.round((wins / shown.length) * 100)}%` : "—"}</strong></article>
       <article><span>Total P/L (1 lot)</span><strong className={totalPl > 0 ? "positive" : totalPl < 0 ? "negative" : ""}>{shown.length ? usd(totalPl) : "—"}</strong></article>
+      <article><span>Live account P/L ({liveShown.length} trades)</span><strong className={liveTotal > 0 ? "positive" : liveTotal < 0 ? "negative" : ""}>{liveShown.length ? usd(liveTotal) : "—"}</strong></article>
       <article><span>Avg max move (wins)</span><strong>{avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`}</strong></article>
     </section>
 
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart</th><th>Side / Result</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
-        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={9}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
-          const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n);
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart</th><th>Side / Result / Trend</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>Live account (MT5)</th><th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
+        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={10}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
+          const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
+          const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : null);
+          const lvUsd = lv.reduce((sum, l) => sum + (l.usd ?? 0), 0);
           return <tr key={t.key}>
             <td><b>{closedText(t.closedAt)}</b><span className="entry-sub">{t.symbol} · {tfLabel(t.tf)}</span></td>
-            <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span><span className="cell-stack"><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></span></td>
+            <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span><span className="cell-stack"><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></span>{trend && <span className={`entry-sub ${trend === "with" ? "positive" : "negative"}`}>{trend === "with" ? "With trend" : "Against trend"}</span>}</td>
             <td className="tv-levels"><span className="pill tv-active">{n === 1 ? "E1" : `E1–E${n}`} active ({n}/4)</span>
               {[0, 1, 2, 3].map((k) => t.limits[k] ? <span key={k} className={`entry-sub ${k < n ? "tv-lvl-on" : "tv-lvl-off"}`}>{k < n ? "✓" : "·"} E{k + 1} {t.limits[k]}</span> : null)}
               {t.stopLoss && <span className="entry-sub negative">SL {t.stopLoss}</span>}</td>
             <td className={`tv-tps ${t.takeProfit ? "positive" : ""}`}>{t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map((tp, k) => <span key={k} className="entry-sub">TP{k + 1} {tp}</span>) : "—"}</td>
             <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl)}</b>}</td>
+            <td className={lv.length === 0 ? "" : lvUsd > 0 ? "positive" : lvUsd < 0 ? "negative" : ""}>{lv.length === 0 ? <span className="tv-from">not traded</span> : <><b>{usd(lvUsd)}</b>{lv.map((l, k) => <span key={k} className="entry-sub">{LIVE_RESULT[l.result] ?? l.result}{l.pips == null ? "" : ` ${l.pips > 0 ? "+" : ""}${l.pips}p`} · {l.account}</span>)}</>}</td>
             <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">E1{mv.lvl > 1 ? `–E${mv.lvl}` : ""} open: {usd(mv.usd)}</span></>}</td>
             <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">E1{n > 1 ? `–E${n}` : ""} open: {usd(ag.usd)}</span></>}</td>
             <td className={m?.peak != null && m.peak > 0 ? "positive" : ""}>{m?.peak == null ? "—" : <b>{usd(m.peak)}</b>}</td>

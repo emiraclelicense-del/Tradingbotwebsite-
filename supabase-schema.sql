@@ -95,3 +95,4 @@ alter table public.tv_trades add column if not exists tp_hit integer;     -- TPs
 alter table public.tv_trades add column if not exists filled integer;     -- entries filled (1 = E1 .. 4 = E1-E4)
 alter table public.tv_trades add column if not exists max_move numeric;    -- max move in favour from E1 (pips), from the chart
 alter table public.tv_trades add column if not exists max_against numeric; -- max move against after the last fill (pips), from the chart
+alter table public.tv_trades add column if not exists trend text;          -- 'with' / 'against': H1 EMA 50/200 trend at the first fill, from the chart

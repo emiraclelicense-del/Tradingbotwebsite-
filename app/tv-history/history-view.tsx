@@ -185,6 +185,29 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   async function exportExcel() {
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
+    // sheet 1: the summary boxes of the page + the filters used
+    const sum = wb.addWorksheet("Summary");
+    sum.columns = [{ width: 28 }, { width: 22 }];
+    const dayLabel = DAY_OPTIONS.find((d) => d.value === days)?.label ?? `${days} days`;
+    const rows: [string, string | number][] = [
+      [flux ? "Flux OB History" : "TradingView History", `exported ${new Date().toLocaleString("en-GB", { timeZone: "Asia/Karachi" })} PKT`],
+      ["", ""],
+      ["Filters", ""],
+      ["Symbol", symbol === "all" ? "All" : symbol], ["Timeframe", tf === "all" ? "All" : tfLabel(tf)], ["Time", dayLabel],
+      ["Session", session === "all" ? "All" : SESSION_LABELS[session]], ["Market", market === "all" ? "All" : market[0].toUpperCase() + market.slice(1)],
+      ["Result", res === "all" ? "All" : res === "sl" ? "SL hit" : RESULT_LABELS[res]], ["Trend", trendF === "all" ? "All" : trendF === "with" ? "With trend" : "Against trend"],
+      ["", ""],
+      ["Results", ""],
+      ["Trades", shown.length], ["Target", count("target")], ["BE after TP", count("be")], ["Worked then SL", count("worked")], ["Fail (SL)", count("fail")],
+      ["Win rate", shown.length ? `${Math.round((wins / shown.length) * 100)}%` : "—"],
+      ["Total P/L (1 lot, USD)", shown.length ? Math.round(totalPl * 100) / 100 : "—"],
+      [`Live account P/L (${liveShown.length} trades, USD)`, liveShown.length ? Math.round(liveTotal * 100) / 100 : "—"],
+      ["Avg max move (wins)", avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`],
+    ];
+    for (const r of rows) sum.addRow(r);
+    sum.getRow(1).font = { bold: true, size: 14 };
+    for (const r of [3, 12]) sum.getRow(r).font = { bold: true, color: { argb: "FF1B7F4B" } };
+    for (const r of [19, 20]) { const c = sum.getRow(r).getCell(2); if (typeof c.value === "number") { c.numFmt = "#,##0.00"; c.font = { bold: true, color: { argb: c.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; } }
     const ws = wb.addWorksheet(flux ? "Flux OB History" : "TradingView History", { views: [{ state: "frozen", ySplit: 1 }] });
     ws.columns = [
       ["Closed (PKT)", 18], ["Symbol", 9], ["Chart", 7], ["Session", 10], ["Side", 6], ["Result", 15], ["Trend", 9], ["Market", 9], ["H1 ADX", 8],

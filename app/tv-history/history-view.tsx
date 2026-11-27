@@ -93,10 +93,24 @@ const liveKey = (tf: string, obId: string) => `${tf}|${obId}`;
 const LIVE_RESULT: Record<string, string> = { tp: "TP", sl: "SL", be: "BE", open: "Running" };
 
 // always Pakistan time (PKT, UTC+5), whatever the viewer's computer is set to
-// trading session like the MT5 EA (GMT hour: before 07:00 Asian, before 12:00 London, else New York) - of the candle the trade closed on
+// Forex sessions (of the candle the trade closed on), with the US / UK summer time:
+//   New York 13:00-22:00 GMT = 6 PM-3 AM Pakistan (US summer time, mid-March .. early November: 5 PM-2 AM)
+//   London   08:00 GMT (UK summer time 07:00) until New York opens = 1 PM-6 PM Pakistan
+//   Asian    the rest (after New York closes until London opens)
 type Session = "asian" | "london" | "newyork";
 const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
-const sessionOf = (iso: string): Session => { const h = new Date(iso).getUTCHours(); return h < 7 ? "asian" : h < 12 ? "london" : "newyork"; };
+const nthSunday = (y: number, m: number, from: number) => { const d = new Date(Date.UTC(y, m, from)); d.setUTCDate(from + ((7 - d.getUTCDay()) % 7)); return d; };
+const lastSunday = (y: number, m: number) => { const d = new Date(Date.UTC(y, m + 1, 0)); d.setUTCDate(d.getUTCDate() - d.getUTCDay()); return d; };
+// US: 2nd Sunday of March 07:00 GMT .. 1st Sunday of November 06:00 GMT; UK: last Sunday of March .. last Sunday of October, 01:00 GMT
+const usSummer = (d: Date) => { const y = d.getUTCFullYear(); const a = nthSunday(y, 2, 8), b = nthSunday(y, 10, 1); a.setUTCHours(7); b.setUTCHours(6); return d >= a && d < b; };
+const ukSummer = (d: Date) => { const y = d.getUTCFullYear(); const a = lastSunday(y, 2), b = lastSunday(y, 9); a.setUTCHours(1); b.setUTCHours(1); return d >= a && d < b; };
+const sessionHours = (d: Date) => { const ny = usSummer(d) ? 12 : 13; return { ny, nyEnd: ny + 9, london: ukSummer(d) ? 7 : 8 }; };
+const sessionOf = (iso: string): Session => {
+  const d = new Date(iso), h = d.getUTCHours() + d.getUTCMinutes() / 60, s = sessionHours(d);
+  return h >= s.ny && h < s.nyEnd ? "newyork" : h >= s.london && h < s.ny ? "london" : "asian";
+};
+const pkt = (gmt: number) => { const h = ((gmt + 5) % 24 + 24) % 24; return `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`; };
+const sessionRange = (v: Session) => { const s = sessionHours(new Date()); return v === "newyork" ? `${pkt(s.ny)}–${pkt(s.nyEnd)}` : v === "london" ? `${pkt(s.london)}–${pkt(s.ny)}` : `${pkt(s.nyEnd)}–${pkt(s.london)}`; };
 const closedText = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Karachi" }) + " PKT";
 
 /** flux = the Flux OB script (tv_trades keys "FLUX|..."), else the LuxAlgo Touch & Go script. */
@@ -177,7 +191,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
         {DAY_OPTIONS.map(({ value, label }) => <button key={value} type="button" className={days === value ? "active" : ""} aria-pressed={days === value} onClick={() => setDays(value)}>{label}</button>)}
       </div></fieldset>
       <fieldset className="time-filter"><legend>Session</legend><div className="time-filter-buttons">
-        {(["all", "asian", "london", "newyork"] as const).map((v) => <button key={v} type="button" className={session === v ? "active" : ""} aria-pressed={session === v} onClick={() => setSession(v)}>{v === "all" ? "All" : SESSION_LABELS[v]}</button>)}
+        {(["all", "asian", "london", "newyork"] as const).map((v) => <button key={v} type="button" className={session === v ? "active" : ""} aria-pressed={session === v} onClick={() => setSession(v)} title={v === "all" ? undefined : `${SESSION_LABELS[v]}: ${sessionRange(v)} Pakistan time`}>{v === "all" ? "All" : <>{SESSION_LABELS[v]}<span className="tv-range">{sessionRange(v)}</span></>}</button>)}
       </div></fieldset>
     </section>
 

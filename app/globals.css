@@ -93,3 +93,4 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .tv-table .tv-from{color:#8d9a98;font-size:11px}
 @media(min-width:1051px){.tv-stats.tv-stats-8{grid-template-columns:repeat(8,1fr)}}
 .tv-table .tv-session{color:#e6c36a}
+.time-filter-buttons .tv-range{display:block;font-size:10px;font-weight:500;opacity:.7}

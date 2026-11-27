@@ -181,6 +181,43 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const liveTotal = liveShown.reduce((sum, l) => sum + (l.usd ?? 0), 0);
   const avgRun = winMoves.length ? winMoves.reduce((sum, v) => sum + v, 0) / winMoves.length : null;
 
+  // the trades now shown (all filters) as an Excel file (.xlsx); exceljs is loaded only when the button is clicked
+  async function exportExcel() {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(flux ? "Flux OB History" : "TradingView History", { views: [{ state: "frozen", ySplit: 1 }] });
+    ws.columns = [
+      ["Closed (PKT)", 18], ["Symbol", 9], ["Chart", 7], ["Session", 10], ["Side", 6], ["Result", 15], ["Trend", 9], ["Market", 9], ["H1 ADX", 8],
+      ["Entries filled", 9], ["E1", 10], ["E2", 10], ["E3", 10], ["E4", 10], ["SL", 10], ["Take profit", 34], ["TPs hit", 7],
+      ["P/L 1 lot (USD)", 13], ["Live account P/L (USD)", 14], ["Max move (pips)", 11], ["Max move from", 9], ["Max move price", 12], ["Max move profit (USD)", 14],
+      ["Max against (pips)", 11], ["Max against price", 12], ["Max profit before SL (USD)", 15], ["Runs", 48],
+    ].map(([header, width]) => ({ header: String(header), width: Number(width) }));
+    const num = (v: string | undefined) => (v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : v ?? "");
+    for (const t of shown) {
+      const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
+      const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : "");
+      const row = ws.addRow([closedText(t.closedAt).replace(" PKT", ""), t.symbol, tfLabel(t.tf), SESSION_LABELS[sessionOf(t.closedAt)], t.side.toUpperCase(), RESULT_LABELS[t.result], trend, t.market ?? "", t.adx ?? "",
+        n, num(t.limits[0]), num(t.limits[1]), num(t.limits[2]), num(t.limits[3]), num(t.stopLoss), t.takeProfit, t.tpHit ?? "",
+        m?.pl == null ? "" : Math.round(m.pl * 100) / 100, lv.length ? Math.round(lv.reduce((sum, l) => sum + (l.usd ?? 0), 0) * 100) / 100 : "",
+        mv?.pips ?? "", mv ? `E${mv.lvl}` : "", mv ? Number(priceText(t.symbol, mv.price)) : "", mv ? Math.round(mv.usd * 100) / 100 : "",
+        ag?.pips ?? "", ag ? Number(priceText(t.symbol, ag.price)) : "", m?.peak == null ? "" : Math.round(m.peak * 100) / 100, t.runs]);
+      const pl = row.getCell(18);
+      if (typeof pl.value === "number") pl.font = { color: { argb: pl.value >= 0 ? "FF1B7F4B" : "FFC0392B" } };
+      row.getCell(6).font = { color: { argb: t.result === "fail" ? "FFC0392B" : t.result === "worked" ? "FFB9770E" : "FF1B7F4B" } };
+    }
+    for (const c of [18, 19, 23, 26]) ws.getColumn(c).numFmt = "#,##0.00";
+    const head = ws.getRow(1);
+    head.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    head.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF14382C" } };
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columnCount } };
+    const blob = new Blob([await wb.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${flux ? "flux" : "tradingview"}-history-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   return <main className="dark-theme">
     <SiteNav />
     <section className="hero"><div className="hero-copy"><p className="eyebrow">{flux ? "TRADINGVIEW · FLUX OB" : "TRADINGVIEW"}</p>
@@ -224,7 +261,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
 
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
-      <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
+      <div className="table-title"><h2>Closed trades</h2><span className="tv-title-right">{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}<button type="button" className="tv-export" disabled={!shown.length} onClick={() => { exportExcel().catch(() => setError("Could not make the Excel file.")); }}>Export Excel</button></span></div>
       <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
         <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 9 : 10}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);

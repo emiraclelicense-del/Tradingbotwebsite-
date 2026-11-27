@@ -125,6 +125,8 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const [days, setDays] = useState(31);
   const [session, setSession] = useState<"all" | Session>("all");
   const [market, setMarket] = useState<"all" | "bullish" | "bearish" | "ranging">("all");
+  // result filter: "sl" = every trade that ended on its SL (FAIL + WORKED then SL)
+  const [res, setRes] = useState<"all" | "target" | "be" | "sl">("all");
   const [live, setLive] = useState<Map<string, LiveTrade[]>>(new Map());
 
   useEffect(() => { document.body.dataset.theme = "dark"; }, []);
@@ -166,8 +168,8 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const tfs = useMemo(() => [...new Set(trades.filter((t) => symbol === "all" || t.symbol === symbol).map((t) => t.tf))].sort((a, b) => tfMinutes(a) - tfMinutes(b)), [trades, symbol]);
   const shown = useMemo(() => {
     const from = days === 1 ? Math.floor((Date.now() + 5 * 3600000) / 86400000) * 86400000 - 5 * 3600000 : Date.now() - days * 86400000;   // "Today" = since midnight Pakistan time
-    return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && (session === "all" || sessionOf(t.closedAt) === session) && (market === "all" || t.market === market) && new Date(t.closedAt).getTime() >= from);
-  }, [trades, symbol, tf, days, session, market]);
+    return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && (session === "all" || sessionOf(t.closedAt) === session) && (market === "all" || t.market === market) && (res === "all" || (res === "sl" ? t.result === "fail" || t.result === "worked" : t.result === res)) && new Date(t.closedAt).getTime() >= from);
+  }, [trades, symbol, tf, days, session, market, res]);
   const count = (r: Result) => shown.filter((t) => t.result === r).length;
   const wins = count("target") + count("be");
   const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map((t) => maxMove(t)?.pips).filter((v): v is number => v != null);
@@ -198,6 +200,9 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       </div></fieldset>
       <fieldset className="time-filter"><legend>Market</legend><div className="time-filter-buttons">
         {(["all", "bullish", "bearish", "ranging"] as const).map((v) => <button key={v} type="button" className={market === v ? "active" : ""} aria-pressed={market === v} onClick={() => setMarket(v)}>{v === "all" ? "All" : v[0].toUpperCase() + v.slice(1)}</button>)}
+      </div></fieldset>
+      <fieldset className="time-filter"><legend>Result</legend><div className="time-filter-buttons">
+        {([["all", "All"], ["target", "Target"], ["be", "BE after TP"], ["sl", "SL hit"]] as const).map(([v, label]) => <button key={v} type="button" className={res === v ? "active" : ""} aria-pressed={res === v} onClick={() => setRes(v)}>{label}</button>)}
       </div></fieldset>
     </section>
 

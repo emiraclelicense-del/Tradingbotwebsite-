@@ -18,6 +18,8 @@ const tfMinutes = (tf: string) => /^\d+$/.test(tf) ? Number(tf) : 100000;
 const LOTS = [0.5, 0.3, 0.1, 0.1];
 const BE_PIPS = 10;                // TP1 hit -> the rest closes at E1 + 10 pips (later TPs: one TP behind)
 const spec = (symbol: string) => /XAU|GOLD/.test(symbol) ? { pip: 0.1, contract: 100 } : /BTC/.test(symbol) ? { pip: 1, contract: 1 } : { pip: 0.0001, contract: 100000 };
+// a price with the decimals of its symbol (gold 2, BTC 1, forex 5)
+const priceText = (symbol: string, v: number) => v.toFixed(spec(symbol).pip >= 1 ? 1 : spec(symbol).pip >= 0.1 ? 2 : 5);
 const usd = (v: number) => `${v < 0 ? "-" : "+"}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** Profit of a TradingView trade with the lots above, and (SL trades) the highest open profit it had before the SL. */
@@ -29,30 +31,30 @@ function filledOf(t: TvTrade) {
 
 /** The trade's max move: the entry run with the MOST total profit of the entries open then (E1..that entry), e.g. "E2 +176.8p".
  *  (E1 +0.0p beats E4 +10.2p when E1-E4 open at that E4 peak are still in loss.) */
-function maxMove(t: TvTrade): { pips: number; lvl: number; usd: number } | null {
+function maxMove(t: TvTrade): { pips: number; lvl: number; usd: number; price: number } | null {
   const lims = t.limits.map(Number);
   const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
-  let best: { pips: number; lvl: number; usd: number } | null = null;
+  let best: { pips: number; lvl: number; usd: number; price: number } | null = null;
   for (const m of t.runs.matchAll(/E(\d)\s*([+-]?\d+(?:\.\d+)?)p/g)) {
     const lvl = Number(m[1]), pips = Number(m[2]);
     if (lvl < 1 || !Number.isFinite(lims[lvl - 1])) continue;
     const price = lims[lvl - 1] + dir * pips * pip;
     let usdSum = 0;
     for (let L = 0; L < lvl; L++) if (Number.isFinite(lims[L])) usdSum += LOTS[L] * (price - lims[L]) * dir * contract;
-    if (!best || usdSum > best.usd || (usdSum === best.usd && pips > best.pips)) best = { pips, lvl, usd: usdSum };
+    if (!best || usdSum > best.usd || (usdSum === best.usd && pips > best.pips)) best = { pips, lvl, usd: usdSum, price };
   }
   return best;
 }
 
 /** Max move AGAINST the trade after its last fill (e.g. E2 filled, price went 38.5 pips below E2), and the open loss of E1..En then. */
-function against(t: TvTrade, n: number): { pips: number; usd: number } | null {
+function against(t: TvTrade, n: number): { pips: number; usd: number; price: number } | null {
   const lims = t.limits.map(Number);
   if (t.maxAgainst == null || !Number.isFinite(lims[n - 1])) return null;
   const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
   const price = lims[n - 1] - dir * t.maxAgainst * pip;
   let sum = 0;
   for (let L = 0; L < n; L++) if (Number.isFinite(lims[L])) sum += LOTS[L] * (price - lims[L]) * dir * contract;
-  return { pips: t.maxAgainst, usd: sum };
+  return { pips: t.maxAgainst, usd: sum, price };
 }
 
 function money(t: TvTrade): { pl: number | null; peak: number | null } {
@@ -228,8 +230,8 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
             <td className={`tv-tps ${t.takeProfit ? "positive" : ""}`}>{t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map((tp, k) => <span key={k} className="entry-sub">TP{k + 1} {tp}</span>) : "—"}</td>
             <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl)}</b>}</td>
             {!flux && <td className={lv.length === 0 ? "" : lvUsd > 0 ? "positive" : lvUsd < 0 ? "negative" : ""}>{lv.length === 0 ? <span className="tv-from">not traded</span> : <><b>{usd(lvUsd)}</b>{lv.map((l, k) => <span key={k} className="entry-sub">{LIVE_RESULT[l.result] ?? l.result}{l.pips == null ? "" : ` ${l.pips > 0 ? "+" : ""}${l.pips}p`} · {l.account}</span>)}</>}</td>}
-            <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">E1{mv.lvl > 1 ? `–E${mv.lvl}` : ""} open: {usd(mv.usd)}</span></>}</td>
-            <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">E1{n > 1 ? `–E${n}` : ""} open: {usd(ag.usd)}</span></>}</td>
+            <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">Price {priceText(t.symbol, mv.price)}</span><span className="entry-sub">E1{mv.lvl > 1 ? `–E${mv.lvl}` : ""} open: {usd(mv.usd)}</span></>}</td>
+            <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">Price {priceText(t.symbol, ag.price)}</span><span className="entry-sub">E1{n > 1 ? `–E${n}` : ""} open: {usd(ag.usd)}</span></>}</td>
             <td className={m?.peak != null && m.peak > 0 ? "positive" : ""}>{m?.peak == null ? "—" : <b>{usd(m.peak)}</b>}</td>
             <td className="tv-runs">{t.runs || "—"}</td>
           </tr>;

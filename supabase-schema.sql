@@ -96,3 +96,4 @@ alter table public.tv_trades add column if not exists filled integer;     -- ent
 alter table public.tv_trades add column if not exists max_move numeric;    -- max move in favour from E1 (pips), from the chart
 alter table public.tv_trades add column if not exists max_against numeric; -- max move against after the last fill (pips), from the chart
 alter table public.tv_trades add column if not exists trend text;          -- 'with' / 'against': H1 EMA 50/200 trend at the first fill, from the chart
+alter table public.tv_trades add column if not exists market text;         -- 'bullish' / 'bearish' / 'ranging': H1 ADX(14) + EMA 50/200 at the first fill, from the chart

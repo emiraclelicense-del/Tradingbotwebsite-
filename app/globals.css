@@ -84,7 +84,7 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .entries-table .proof-link{font-size:12px}
 /* TradingView History tab */
 .tv-stats{grid-template-columns:repeat(9,1fr)}
-.history-filters:has(+ .tv-stats){grid-template-columns:repeat(4,minmax(0,1fr))}
+.history-filters:has(+ .tv-stats){grid-template-columns:repeat(5,minmax(0,1fr))}
 .tv-table td.tv-runs{white-space:normal;min-width:220px;color:#c4d0cd;font:12px 'DM Mono',monospace}
 @media(max-width:1050px){.tv-stats{grid-template-columns:repeat(3,1fr)}.history-filters:has(+ .tv-stats){grid-template-columns:1fr}}
 .tv-table td.tv-tps .entry-sub{margin-top:0;line-height:1.5}
@@ -94,3 +94,4 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 @media(min-width:1051px){.tv-stats.tv-stats-8{grid-template-columns:repeat(8,1fr)}}
 .tv-table .tv-session{color:#e6c36a}
 .time-filter-buttons .tv-range{display:block;font-size:10px;font-weight:500;opacity:.7}
+.tv-table .tv-mkt-bullish{color:#70f1bb}.tv-table .tv-mkt-bearish{color:#ff8a8a}.tv-table .tv-mkt-ranging{color:#e6c36a}

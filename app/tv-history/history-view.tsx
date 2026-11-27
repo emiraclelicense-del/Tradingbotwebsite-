@@ -5,7 +5,7 @@ import SiteNav from "../site-nav";
 import { supabase } from "../supabase";
 
 type Result = "target" | "be" | "worked" | "fail";
-type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string; tpHit: number | null; filled: number | null; maxMove: number | null; maxAgainst: number | null; trend: string | null };
+type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string; tpHit: number | null; filled: number | null; maxMove: number | null; maxAgainst: number | null; trend: string | null; market: string | null };
 
 const RESULT_LABELS: Record<Result, string> = { target: "TARGET", be: "BE after TP", worked: "WORKED then SL", fail: "FAIL (SL)" };
 const RESULT_TONE: Record<Result, string> = { target: "gain", be: "open", worked: "be", fail: "loss" };
@@ -122,6 +122,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const [tf, setTf] = useState("all");
   const [days, setDays] = useState(31);
   const [session, setSession] = useState<"all" | Session>("all");
+  const [market, setMarket] = useState<"all" | "bullish" | "bearish" | "ranging">("all");
   const [live, setLive] = useState<Map<string, LiveTrade[]>>(new Map());
 
   useEffect(() => { document.body.dataset.theme = "dark"; }, []);
@@ -150,7 +151,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
         key: String(row.key), symbol: String(row.symbol), tf: String(row.tf), side: row.side === "sell" ? "sell" : "buy", closedAt: String(row.closed_at),
         result: (["target", "be", "worked", "fail"].includes(row.result) ? row.result : "fail") as Result,
         bestRun: row.best_run == null ? null : Number(row.best_run), runs: row.runs ? String(row.runs) : "", limits: row.entry ? String(row.entry).split(/\s*,\s*/) : [], stopLoss: row.stop_loss ? String(row.stop_loss) : "",
-        takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled), maxMove: row.max_move == null ? null : Number(row.max_move), maxAgainst: row.max_against == null ? null : Number(row.max_against), trend: row.trend ? String(row.trend) : null,
+        takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled), maxMove: row.max_move == null ? null : Number(row.max_move), maxAgainst: row.max_against == null ? null : Number(row.max_against), trend: row.trend ? String(row.trend) : null, market: row.market ? String(row.market) : null,
       })));
       setLoading(false);
     }
@@ -163,8 +164,8 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const tfs = useMemo(() => [...new Set(trades.filter((t) => symbol === "all" || t.symbol === symbol).map((t) => t.tf))].sort((a, b) => tfMinutes(a) - tfMinutes(b)), [trades, symbol]);
   const shown = useMemo(() => {
     const from = days === 1 ? Math.floor((Date.now() + 5 * 3600000) / 86400000) * 86400000 - 5 * 3600000 : Date.now() - days * 86400000;   // "Today" = since midnight Pakistan time
-    return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && (session === "all" || sessionOf(t.closedAt) === session) && new Date(t.closedAt).getTime() >= from);
-  }, [trades, symbol, tf, days, session]);
+    return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && (session === "all" || sessionOf(t.closedAt) === session) && (market === "all" || t.market === market) && new Date(t.closedAt).getTime() >= from);
+  }, [trades, symbol, tf, days, session, market]);
   const count = (r: Result) => shown.filter((t) => t.result === r).length;
   const wins = count("target") + count("be");
   const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map((t) => maxMove(t)?.pips).filter((v): v is number => v != null);
@@ -193,6 +194,9 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       <fieldset className="time-filter"><legend>Session</legend><div className="time-filter-buttons">
         {(["all", "asian", "london", "newyork"] as const).map((v) => <button key={v} type="button" className={session === v ? "active" : ""} aria-pressed={session === v} onClick={() => setSession(v)} title={v === "all" ? undefined : `${SESSION_LABELS[v]}: ${sessionRange(v)} Pakistan time`}>{v === "all" ? "All" : <>{SESSION_LABELS[v]}<span className="tv-range">{sessionRange(v)}</span></>}</button>)}
       </div></fieldset>
+      <fieldset className="time-filter"><legend>Market</legend><div className="time-filter-buttons">
+        {(["all", "bullish", "bearish", "ranging"] as const).map((v) => <button key={v} type="button" className={market === v ? "active" : ""} aria-pressed={market === v} onClick={() => setMarket(v)}>{v === "all" ? "All" : v[0].toUpperCase() + v.slice(1)}</button>)}
+      </div></fieldset>
     </section>
 
     <section className={`stats tv-stats${flux ? " tv-stats-8" : ""}`} aria-label="TradingView results">
@@ -210,14 +214,14 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart / Session</th><th>Side / Result / Trend</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
         <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 9 : 10}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
           const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : null);
           const lvUsd = lv.reduce((sum, l) => sum + (l.usd ?? 0), 0);
           return <tr key={t.key}>
             <td><b>{closedText(t.closedAt)}</b><span className="entry-sub">{t.symbol} · {tfLabel(t.tf)}</span><span className="entry-sub tv-session">{SESSION_LABELS[sessionOf(t.closedAt)]} session</span></td>
-            <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span><span className="cell-stack"><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></span>{trend && <span className={`entry-sub ${trend === "with" ? "positive" : "negative"}`}>{trend === "with" ? "With trend" : "Against trend"}</span>}</td>
+            <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span><span className="cell-stack"><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></span>{trend && <span className={`entry-sub ${trend === "with" ? "positive" : "negative"}`}>{trend === "with" ? "With trend" : "Against trend"}</span>}{t.market && <span className={`entry-sub tv-mkt-${t.market}`}>{t.market === "bullish" ? "Bullish market" : t.market === "bearish" ? "Bearish market" : "Ranging market"}</span>}</td>
             <td className="tv-levels"><span className="pill tv-active">{n === 1 ? "E1" : `E1–E${n}`} active ({n}/4)</span>
               {[0, 1, 2, 3].map((k) => t.limits[k] ? <span key={k} className={`entry-sub ${k < n ? "tv-lvl-on" : "tv-lvl-off"}`}>{k < n ? "✓" : "·"} E{k + 1} {t.limits[k]}</span> : null)}
               {t.stopLoss && <span className="entry-sub negative">SL {t.stopLoss}</span>}</td>

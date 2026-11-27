@@ -84,7 +84,7 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .entries-table .proof-link{font-size:12px}
 /* TradingView History tab */
 .tv-stats{grid-template-columns:repeat(9,1fr)}
-.history-filters:has(+ .tv-stats){grid-template-columns:repeat(3,minmax(0,1fr))}
+.history-filters:has(+ .tv-stats){grid-template-columns:repeat(4,minmax(0,1fr))}
 .tv-table td.tv-runs{white-space:normal;min-width:220px;color:#c4d0cd;font:12px 'DM Mono',monospace}
 @media(max-width:1050px){.tv-stats{grid-template-columns:repeat(3,1fr)}.history-filters:has(+ .tv-stats){grid-template-columns:1fr}}
 .tv-table td.tv-tps .entry-sub{margin-top:0;line-height:1.5}
@@ -92,3 +92,4 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .tv-table td{vertical-align:top}.tv-table td.tv-runs{min-width:160px;max-width:260px}.tv-table .tv-levels .entry-sub{margin-top:2px}.tv-table .entry-sub.tv-lvl-on{color:#edf5f3}.tv-table .entry-sub.tv-lvl-off{opacity:.4}
 .tv-table .tv-from{color:#8d9a98;font-size:11px}
 @media(min-width:1051px){.tv-stats.tv-stats-8{grid-template-columns:repeat(8,1fr)}}
+.tv-table .tv-session{color:#e6c36a}

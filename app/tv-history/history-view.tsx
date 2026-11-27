@@ -93,6 +93,10 @@ const liveKey = (tf: string, obId: string) => `${tf}|${obId}`;
 const LIVE_RESULT: Record<string, string> = { tp: "TP", sl: "SL", be: "BE", open: "Running" };
 
 // always Pakistan time (PKT, UTC+5), whatever the viewer's computer is set to
+// trading session like the MT5 EA (GMT hour: before 07:00 Asian, before 12:00 London, else New York) - of the candle the trade closed on
+type Session = "asian" | "london" | "newyork";
+const SESSION_LABELS: Record<Session, string> = { asian: "Asian", london: "London", newyork: "New York" };
+const sessionOf = (iso: string): Session => { const h = new Date(iso).getUTCHours(); return h < 7 ? "asian" : h < 12 ? "london" : "newyork"; };
 const closedText = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Karachi" }) + " PKT";
 
 /** flux = the Flux OB script (tv_trades keys "FLUX|..."), else the LuxAlgo Touch & Go script. */
@@ -103,6 +107,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const [symbol, setSymbol] = useState("all");
   const [tf, setTf] = useState("all");
   const [days, setDays] = useState(31);
+  const [session, setSession] = useState<"all" | Session>("all");
   const [live, setLive] = useState<Map<string, LiveTrade[]>>(new Map());
 
   useEffect(() => { document.body.dataset.theme = "dark"; }, []);
@@ -144,8 +149,8 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const tfs = useMemo(() => [...new Set(trades.filter((t) => symbol === "all" || t.symbol === symbol).map((t) => t.tf))].sort((a, b) => tfMinutes(a) - tfMinutes(b)), [trades, symbol]);
   const shown = useMemo(() => {
     const from = days === 1 ? Math.floor((Date.now() + 5 * 3600000) / 86400000) * 86400000 - 5 * 3600000 : Date.now() - days * 86400000;   // "Today" = since midnight Pakistan time
-    return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && new Date(t.closedAt).getTime() >= from);
-  }, [trades, symbol, tf, days]);
+    return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && (session === "all" || sessionOf(t.closedAt) === session) && new Date(t.closedAt).getTime() >= from);
+  }, [trades, symbol, tf, days, session]);
   const count = (r: Result) => shown.filter((t) => t.result === r).length;
   const wins = count("target") + count("be");
   const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map((t) => maxMove(t)?.pips).filter((v): v is number => v != null);
@@ -171,6 +176,9 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       <fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">
         {DAY_OPTIONS.map(({ value, label }) => <button key={value} type="button" className={days === value ? "active" : ""} aria-pressed={days === value} onClick={() => setDays(value)}>{label}</button>)}
       </div></fieldset>
+      <fieldset className="time-filter"><legend>Session</legend><div className="time-filter-buttons">
+        {(["all", "asian", "london", "newyork"] as const).map((v) => <button key={v} type="button" className={session === v ? "active" : ""} aria-pressed={session === v} onClick={() => setSession(v)}>{v === "all" ? "All" : SESSION_LABELS[v]}</button>)}
+      </div></fieldset>
     </section>
 
     <section className={`stats tv-stats${flux ? " tv-stats-8" : ""}`} aria-label="TradingView results">
@@ -188,13 +196,13 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span>{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}</span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart</th><th>Side / Result / Trend</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart / Session</th><th>Side / Result / Trend</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
         <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 9 : 10}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
           const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : null);
           const lvUsd = lv.reduce((sum, l) => sum + (l.usd ?? 0), 0);
           return <tr key={t.key}>
-            <td><b>{closedText(t.closedAt)}</b><span className="entry-sub">{t.symbol} · {tfLabel(t.tf)}</span></td>
+            <td><b>{closedText(t.closedAt)}</b><span className="entry-sub">{t.symbol} · {tfLabel(t.tf)}</span><span className="entry-sub tv-session">{SESSION_LABELS[sessionOf(t.closedAt)]} session</span></td>
             <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span><span className="cell-stack"><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></span>{trend && <span className={`entry-sub ${trend === "with" ? "positive" : "negative"}`}>{trend === "with" ? "With trend" : "Against trend"}</span>}</td>
             <td className="tv-levels"><span className="pill tv-active">{n === 1 ? "E1" : `E1–E${n}`} active ({n}/4)</span>
               {[0, 1, 2, 3].map((k) => t.limits[k] ? <span key={k} className={`entry-sub ${k < n ? "tv-lvl-on" : "tv-lvl-off"}`}>{k < n ? "✓" : "·"} E{k + 1} {t.limits[k]}</span> : null)}

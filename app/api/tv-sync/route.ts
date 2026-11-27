@@ -14,7 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Row = { key: string; symbol: string; tf: string; side: string; closed_at: string; result: string; best_run: number | null; runs: string | null; entry: string | null; stop_loss: string | null; take_profit: string | null; tp_hit: number | null; filled: number | null; max_move: number | null; max_against: number | null; trend?: string | null; market?: string | null; from_history: boolean };
+type Row = { key: string; symbol: string; tf: string; side: string; closed_at: string; result: string; best_run: number | null; runs: string | null; entry: string | null; stop_loss: string | null; take_profit: string | null; tp_hit: number | null; filled: number | null; max_move: number | null; max_against: number | null; trend?: string | null; market?: string | null; adx?: number | null; from_history: boolean };
 
 // The chart history (Pine) is the reference for time / result / runs; a live close only adds the entry and SL,
 // and fills the rest while the history for that trade has not arrived yet.
@@ -24,7 +24,7 @@ function merge(base: Row | undefined, add: Row): Row {
   const other = hist === add ? base : add;
   return { ...hist, best_run: hist.best_run ?? other.best_run, runs: hist.runs ?? other.runs,
     entry: add.entry ?? base.entry, stop_loss: add.stop_loss ?? base.stop_loss, take_profit: add.take_profit ?? base.take_profit,
-    tp_hit: hist.tp_hit ?? other.tp_hit, filled: hist.filled ?? other.filled, max_move: hist.max_move ?? other.max_move, max_against: hist.max_against ?? other.max_against, trend: hist.trend ?? other.trend ?? null, market: hist.market ?? other.market ?? null, from_history: base.from_history || add.from_history };
+    tp_hit: hist.tp_hit ?? other.tp_hit, filled: hist.filled ?? other.filled, max_move: hist.max_move ?? other.max_move, max_against: hist.max_against ?? other.max_against, trend: hist.trend ?? other.trend ?? null, market: hist.market ?? other.market ?? null, adx: hist.adx ?? other.adx ?? null, from_history: base.from_history || add.from_history };
 }
 
 const COLS = "key, symbol, tf, side, closed_at, result, best_run, runs, entry, stop_loss, take_profit, tp_hit, filled, max_move, max_against, from_history";
@@ -97,13 +97,13 @@ async function sync() {
     if (a.event === "history" && typeof a.trades === "string") {
       for (const item of a.trades.split(";")) {
         if (!flux && fluxItems.has(`${tf}|${item}`)) continue;
-        const [t, code, side, best, runs, obId, lims, sl, tps, hit, fil, move, against, trd, mk] = item.split("|");
+        const [t, code, side, best, runs, obId, lims, sl, tps, hit, fil, move, against, trd, mk, ax] = item.split("|");
         const unix = Number(t);
         if (!Number.isFinite(unix) || !CODES[code] || (side !== "1" && side !== "-1")) continue;
         const k = `${pre}${symbol}|${tf}|${obId || `t${unix}`}`;
         rows.set(k, merge(rows.get(k), { key: k, symbol, tf, side: side === "1" ? "buy" : "sell", closed_at: new Date(unix * 1000).toISOString(), result: CODES[code],
           best_run: best ? Number(best) : null, runs: runs || null, entry: lims ? lims.split(",").join(", ") : null, stop_loss: sl || null,
-          take_profit: tps ? tps.split("/").join(" / ") : null, tp_hit: int(hit), filled: int(fil), max_move: num(move), max_against: num(against), trend: trendOf(trd), market: marketOf(mk), from_history: true }));
+          take_profit: tps ? tps.split("/").join(" / ") : null, tp_hit: int(hit), filled: int(fil), max_move: num(move), max_against: num(against), trend: trendOf(trd), market: marketOf(mk), adx: num(ax), from_history: true }));
       }
       continue;
     }
@@ -120,14 +120,14 @@ async function sync() {
       const runs = msg.includes("RUNS ") ? msg.slice(msg.indexOf("RUNS ") + 5).trim() : null;
       rows.set(k, merge(rows.get(k), { key: k, symbol, tf, side: a.side, closed_at: new Date(candleOpen(tf, env.time, /\(LIVE\)/i.test(msg)) * 1000).toISOString(), result: closeResult(msg),
         best_run: null, runs, entry: limits.length ? limits.join(", ") : null, stop_loss: firstSl.get(k) ?? fmt(a.sl), take_profit: tps.length ? tps.join(" / ") : null,
-        tp_hit: /TARGET/i.test(msg) ? tps.length : Number(/AFTER TP(\d+)/i.exec(msg)?.[1] ?? 0), filled: typeof a.filled === "number" ? a.filled : null, max_move: null, max_against: num(/AGAINST E\d+ ([\d.]+)p/i.exec(msg)?.[1]), trend: trendOf(/TREND (WITH|AGAINST)/i.exec(msg)?.[1]), market: marketOf(/MARKET (BULLISH|BEARISH|RANGING)/i.exec(msg)?.[1]), from_history: false }));
+        tp_hit: /TARGET/i.test(msg) ? tps.length : Number(/AFTER TP(\d+)/i.exec(msg)?.[1] ?? 0), filled: typeof a.filled === "number" ? a.filled : null, max_move: null, max_against: num(/AGAINST E\d+ ([\d.]+)p/i.exec(msg)?.[1]), trend: trendOf(/TREND (WITH|AGAINST)/i.exec(msg)?.[1]), market: marketOf(/MARKET (BULLISH|BEARISH|RANGING)/i.exec(msg)?.[1]), adx: num(/ADX ([\d.]+)/i.exec(msg)?.[1]), from_history: false }));
     }
   }
 
   // merge with what is stored already (an older sync may hold the history or the entry of the same trade)
   // (newer columns "trend" / "market": until they are added in Supabase the sync keeps working without them)
   const keys = [...rows.keys()];
-  let extra = ["trend", "market"];
+  let extra = ["trend", "market", "adx"];
   for (let i = 0; i < keys.length; i += 200) {
     const read = (cols: string) => db.from("tv_trades").select(cols).in("key", keys.slice(i, i + 200));
     let { data, error } = await read([COLS, ...extra].join(", "));
@@ -140,7 +140,7 @@ async function sync() {
   }
   const list = [...rows.values()].map((r) => {
     const out: Record<string, unknown> = { ...r };
-    for (const c of ["trend", "market"]) if (!extra.includes(c)) delete out[c];
+    for (const c of ["trend", "market", "adx"]) if (!extra.includes(c)) delete out[c];
     return out;
   });
   for (let i = 0; i < list.length; i += 500) {

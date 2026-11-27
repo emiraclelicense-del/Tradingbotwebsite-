@@ -14,7 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Row = { key: string; symbol: string; tf: string; side: string; closed_at: string; result: string; best_run: number | null; runs: string | null; entry: string | null; stop_loss: string | null; take_profit: string | null; tp_hit: number | null; filled: number | null; max_move: number | null; max_against: number | null; trend?: string | null; market?: string | null; adx?: number | null; from_history: boolean };
+type Row = { key: string; symbol: string; tf: string; side: string; closed_at: string; result: string; best_run: number | null; runs: string | null; entry: string | null; stop_loss: string | null; take_profit: string | null; tp_hit: number | null; filled: number | null; max_move: number | null; max_against: number | null; trend?: string | null; market?: string | null; adx?: number | null; after_sl?: number | null; after_sl_result?: string | null; from_history: boolean };
 
 // The chart history (Pine) is the reference for time / result / runs; a live close only adds the entry and SL,
 // and fills the rest while the history for that trade has not arrived yet.
@@ -24,7 +24,7 @@ function merge(base: Row | undefined, add: Row): Row {
   const other = hist === add ? base : add;
   return { ...hist, best_run: hist.best_run ?? other.best_run, runs: hist.runs ?? other.runs,
     entry: add.entry ?? base.entry, stop_loss: add.stop_loss ?? base.stop_loss, take_profit: add.take_profit ?? base.take_profit,
-    tp_hit: hist.tp_hit ?? other.tp_hit, filled: hist.filled ?? other.filled, max_move: hist.max_move ?? other.max_move, max_against: hist.max_against ?? other.max_against, trend: hist.trend ?? other.trend ?? null, market: hist.market ?? other.market ?? null, adx: hist.adx ?? other.adx ?? null, from_history: base.from_history || add.from_history };
+    tp_hit: hist.tp_hit ?? other.tp_hit, filled: hist.filled ?? other.filled, max_move: hist.max_move ?? other.max_move, max_against: hist.max_against ?? other.max_against, trend: hist.trend ?? other.trend ?? null, market: hist.market ?? other.market ?? null, adx: hist.adx ?? other.adx ?? null, after_sl: hist.after_sl ?? other.after_sl ?? null, after_sl_result: hist.after_sl_result ?? other.after_sl_result ?? null, from_history: base.from_history || add.from_history };
 }
 
 const COLS = "key, symbol, tf, side, closed_at, result, best_run, runs, entry, stop_loss, take_profit, tp_hit, filled, max_move, max_against, from_history";
@@ -34,6 +34,8 @@ const num = (v: string | undefined) => (v && Number.isFinite(Number(v)) ? Number
 // trend at the first fill (H1 EMA 50/200, like the MT5 EA)
 // market at the first fill (H1 ADX / EMA 50-200): 1 bullish, -1 bearish, 2 ranging
 const marketOf = (v: string | undefined) => (v === "1" || /^bullish$/i.test(v ?? "") ? "bullish" : v === "-1" || /^bearish$/i.test(v ?? "") ? "bearish" : v === "2" || /^ranging$/i.test(v ?? "") ? "ranging" : null);
+// after an SL: 1 = price came back to TP1 within the limit, 2 = went past the limit beyond E4
+const afterSlOf = (v: string | undefined) => (v === "1" ? "tp1" : v === "2" ? "over" : null);
 const trendOf = (v: string | undefined) => (v === "1" || /^with$/i.test(v ?? "") ? "with" : v === "-1" || /^against$/i.test(v ?? "") ? "against" : null);
 const fmt = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? String(v) : null);
 
@@ -79,6 +81,8 @@ async function sync() {
   }
 
   const rows = new Map<string, Row>();
+  // "postsl" alerts: how far price went beyond E4 after the SL (key -> values), applied to the stored trade
+  const postSl = new Map<string, { after_sl: number | null; after_sl_result: string | null }>();
   // original SL of each setup (its "limits" / "fill" alerts): a close alert carries the trailed BE SL instead
   const firstSl = new Map<string, string>();
   for (const line of text.split("\n")) {
@@ -97,19 +101,25 @@ async function sync() {
     if (a.event === "history" && typeof a.trades === "string") {
       for (const item of a.trades.split(";")) {
         if (!flux && fluxItems.has(`${tf}|${item}`)) continue;
-        const [t, code, side, best, runs, obId, lims, sl, tps, hit, fil, move, against, trd, mk, ax] = item.split("|");
+        const [t, code, side, best, runs, obId, lims, sl, tps, hit, fil, move, against, trd, mk, ax, psl, psq] = item.split("|");
         const unix = Number(t);
         if (!Number.isFinite(unix) || !CODES[code] || (side !== "1" && side !== "-1")) continue;
         const k = `${pre}${symbol}|${tf}|${obId || `t${unix}`}`;
         rows.set(k, merge(rows.get(k), { key: k, symbol, tf, side: side === "1" ? "buy" : "sell", closed_at: new Date(unix * 1000).toISOString(), result: CODES[code],
           best_run: best ? Number(best) : null, runs: runs || null, entry: lims ? lims.split(",").join(", ") : null, stop_loss: sl || null,
-          take_profit: tps ? tps.split("/").join(" / ") : null, tp_hit: int(hit), filled: int(fil), max_move: num(move), max_against: num(against), trend: trendOf(trd), market: marketOf(mk), adx: num(ax), from_history: true }));
+          take_profit: tps ? tps.split("/").join(" / ") : null, tp_hit: int(hit), filled: int(fil), max_move: num(move), max_against: num(against), trend: trendOf(trd), market: marketOf(mk), adx: num(ax), after_sl: psq === "1" || psq === "2" ? num(psl) : null, after_sl_result: afterSlOf(psq), from_history: true }));
       }
       continue;
     }
     if ((a.event === "limits" || a.event === "fill") && typeof a.id === "string" && a.id.endsWith("_tg") && fmt(a.sl)) {
       const k = `${pre}${symbol}|${tf}|${a.id.slice(0, -3)}`;
       if (a.event === "limits" || !firstSl.has(k)) firstSl.set(k, fmt(a.sl)!);
+      continue;
+    }
+    if (a.event === "postsl" && typeof a.id === "string" && a.id.endsWith("_tg")) {
+      const msg = typeof a.msg === "string" ? a.msg : "";
+      const res = /TP1 REACHED/i.test(msg) ? "tp1" : /NO TP1/i.test(msg) ? "over" : null;
+      if (res) postSl.set(`${pre}${symbol}|${tf}|${a.id.slice(0, -3)}`, { after_sl: num(/AFTER SL ([\d.]+)/i.exec(msg)?.[1]), after_sl_result: res });
       continue;
     }
     if ((a.event === "close" || a.event === "result") && typeof a.id === "string" && a.id.endsWith("_tg") && (a.side === "buy" || a.side === "sell") && typeof env.time === "number") {
@@ -126,8 +136,8 @@ async function sync() {
 
   // merge with what is stored already (an older sync may hold the history or the entry of the same trade)
   // (newer columns "trend" / "market": until they are added in Supabase the sync keeps working without them)
-  const keys = [...rows.keys()];
-  let extra = ["trend", "market", "adx"];
+  const keys = [...new Set([...rows.keys(), ...postSl.keys()])];
+  let extra = ["trend", "market", "adx", "after_sl", "after_sl_result"];
   for (let i = 0; i < keys.length; i += 200) {
     const read = (cols: string) => db.from("tv_trades").select(cols).in("key", keys.slice(i, i + 200));
     let { data, error } = await read([COLS, ...extra].join(", "));
@@ -136,11 +146,12 @@ async function sync() {
       ({ data, error } = await read([COLS, ...extra].join(", ")));
     }
     if (error) return Response.json({ error: error.message }, { status: 500 });
-    for (const old of (data ?? []) as unknown as Row[]) rows.set(old.key, merge(old, rows.get(old.key)!));
+    for (const old of (data ?? []) as unknown as Row[]) { const add = rows.get(old.key); rows.set(old.key, add ? merge(old, add) : old); }
   }
+  for (const [k, v] of postSl) { const r = rows.get(k); if (r) rows.set(k, { ...r, after_sl: r.after_sl ?? v.after_sl, after_sl_result: r.after_sl_result ?? v.after_sl_result }); }
   const list = [...rows.values()].map((r) => {
     const out: Record<string, unknown> = { ...r };
-    for (const c of ["trend", "market", "adx"]) if (!extra.includes(c)) delete out[c];
+    for (const c of ["trend", "market", "adx", "after_sl", "after_sl_result"]) if (!extra.includes(c)) delete out[c];
     return out;
   });
   for (let i = 0; i < list.length; i += 500) {

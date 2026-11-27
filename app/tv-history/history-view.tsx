@@ -5,7 +5,7 @@ import SiteNav from "../site-nav";
 import { supabase } from "../supabase";
 
 type Result = "target" | "be" | "worked" | "fail";
-type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string; tpHit: number | null; filled: number | null; maxMove: number | null; maxAgainst: number | null; trend: string | null; market: string | null; adx: number | null };
+type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; closedAt: string; result: Result; bestRun: number | null; runs: string; limits: string[]; stopLoss: string; takeProfit: string; tpHit: number | null; filled: number | null; maxMove: number | null; maxAgainst: number | null; trend: string | null; market: string | null; adx: number | null; afterSl: number | null; afterSlResult: string | null };
 
 const RESULT_LABELS: Record<Result, string> = { target: "TARGET", be: "BE after TP", worked: "WORKED then SL", fail: "FAIL (SL)" };
 const RESULT_TONE: Record<Result, string> = { target: "gain", be: "open", worked: "be", fail: "loss" };
@@ -156,7 +156,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
         key: String(row.key), symbol: String(row.symbol), tf: String(row.tf), side: row.side === "sell" ? "sell" : "buy", closedAt: String(row.closed_at),
         result: (["target", "be", "worked", "fail"].includes(row.result) ? row.result : "fail") as Result,
         bestRun: row.best_run == null ? null : Number(row.best_run), runs: row.runs ? String(row.runs) : "", limits: row.entry ? String(row.entry).split(/\s*,\s*/) : [], stopLoss: row.stop_loss ? String(row.stop_loss) : "",
-        takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled), maxMove: row.max_move == null ? null : Number(row.max_move), maxAgainst: row.max_against == null ? null : Number(row.max_against), trend: row.trend ? String(row.trend) : null, market: row.market ? String(row.market) : null, adx: row.adx == null ? null : Number(row.adx),
+        takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled), maxMove: row.max_move == null ? null : Number(row.max_move), maxAgainst: row.max_against == null ? null : Number(row.max_against), trend: row.trend ? String(row.trend) : null, market: row.market ? String(row.market) : null, adx: row.adx == null ? null : Number(row.adx), afterSl: row.after_sl == null ? null : Number(row.after_sl), afterSlResult: row.after_sl_result ? String(row.after_sl_result) : null,
       })));
       setLoading(false);
     }
@@ -213,7 +213,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       ["Closed (PKT)", 18], ["Symbol", 9], ["Chart", 7], ["Session", 10], ["Side", 6], ["Result", 15], ["Trend", 9], ["Market", 9], ["H1 ADX", 8],
       ["Entries filled", 9], ["E1", 10], ["E2", 10], ["E3", 10], ["E4", 10], ["SL", 10], ["Take profit", 34], ["TPs hit", 7],
       ["P/L 1 lot (USD)", 13], ["Live account P/L (USD)", 14], ["Max move (pips)", 11], ["Max move from", 9], ["Max move price", 12], ["Max move profit (USD)", 14],
-      ["Max against (pips)", 11], ["Max against price", 12], ["Max profit before SL (USD)", 15], ["Runs", 48],
+      ["Max against (pips)", 11], ["Max against price", 12], ["After SL beyond E4 (pips)", 13], ["After SL: TP1 reached", 12], ["Max profit before SL (USD)", 15], ["Runs", 48],
     ].map(([header, width]) => ({ header: String(header), width: Number(width) }));
     const num = (v: string | undefined) => (v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : v ?? "");
     for (const t of shown) {
@@ -223,12 +223,12 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
         n, num(t.limits[0]), num(t.limits[1]), num(t.limits[2]), num(t.limits[3]), num(t.stopLoss), t.takeProfit, t.tpHit ?? "",
         m?.pl == null ? "" : Math.round(m.pl * 100) / 100, lv.length ? Math.round(lv.reduce((sum, l) => sum + (l.usd ?? 0), 0) * 100) / 100 : "",
         mv?.pips ?? "", mv ? `E${mv.lvl}` : "", mv ? Number(priceText(t.symbol, mv.price)) : "", mv ? Math.round(mv.usd * 100) / 100 : "",
-        ag?.pips ?? "", ag ? Number(priceText(t.symbol, ag.price)) : "", m?.peak == null ? "" : Math.round(m.peak * 100) / 100, t.runs]);
+        ag?.pips ?? "", ag ? Number(priceText(t.symbol, ag.price)) : "", t.afterSlResult === "over" ? "70+" : t.afterSl ?? "", t.afterSlResult === "tp1" ? "yes" : t.afterSlResult === "over" ? "no" : "", m?.peak == null ? "" : Math.round(m.peak * 100) / 100, t.runs]);
       const pl = row.getCell(18);
       if (typeof pl.value === "number") pl.font = { color: { argb: pl.value >= 0 ? "FF1B7F4B" : "FFC0392B" } };
       row.getCell(6).font = { color: { argb: t.result === "fail" ? "FFC0392B" : t.result === "worked" ? "FFB9770E" : "FF1B7F4B" } };
     }
-    for (const c of [18, 19, 23, 26]) ws.getColumn(c).numFmt = "#,##0.00";
+    for (const c of [18, 19, 23, 28]) ws.getColumn(c).numFmt = "#,##0.00";
     const head = ws.getRow(1);
     head.font = { bold: true, color: { argb: "FFFFFFFF" } };
     head.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF14382C" } };
@@ -300,7 +300,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
             <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl)}</b>}</td>
             {!flux && <td className={lv.length === 0 ? "" : lvUsd > 0 ? "positive" : lvUsd < 0 ? "negative" : ""}>{lv.length === 0 ? <span className="tv-from">not traded</span> : <><b>{usd(lvUsd)}</b>{lv.map((l, k) => <span key={k} className="entry-sub">{LIVE_RESULT[l.result] ?? l.result}{l.pips == null ? "" : ` ${l.pips > 0 ? "+" : ""}${l.pips}p`} · {l.account}</span>)}</>}</td>}
             <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">Price {priceText(t.symbol, mv.price)}</span><span className="entry-sub">E1{mv.lvl > 1 ? `–E${mv.lvl}` : ""} open: {usd(mv.usd)}</span></>}</td>
-            <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">Price {priceText(t.symbol, ag.price)}{(() => { const sl = Number(t.stopLoss); const hit = (t.result === "fail" || t.result === "worked") && Number.isFinite(sl) && Math.abs(ag.price - sl) <= spec(t.symbol).pip * 0.6; return hit ? <b className="negative"> · SL hit</b> : <span className="positive"> · came back</span>; })()}</span><span className="entry-sub">E1{n > 1 ? `–E${n}` : ""} open: {usd(ag.usd)}</span></>}</td>
+            <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">Price {priceText(t.symbol, ag.price)}{(() => { const sl = Number(t.stopLoss); const hit = (t.result === "fail" || t.result === "worked") && Number.isFinite(sl) && Math.abs(ag.price - sl) <= spec(t.symbol).pip * 0.6; return hit ? <b className="negative"> · SL hit</b> : <span className="positive"> · came back</span>; })()}</span><span className="entry-sub">E1{n > 1 ? `–E${n}` : ""} open: {usd(ag.usd)}</span>{t.afterSlResult && <span className={`entry-sub ${t.afterSlResult === "tp1" ? "positive" : "negative"}`}>After SL: {t.afterSlResult === "over" ? "70p+" : `-${t.afterSl}p`} beyond E4 · {t.afterSlResult === "tp1" ? "came back to TP1 ✓" : "no TP1 ✗"}</span>}</>}</td>
             <td className={m?.peak != null && m.peak > 0 ? "positive" : ""}>{m?.peak == null ? "—" : <b>{usd(m.peak)}</b>}</td>
             <td className="tv-runs">{t.runs || "—"}</td>
           </tr>;

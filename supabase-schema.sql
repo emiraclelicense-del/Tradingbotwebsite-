@@ -98,3 +98,5 @@ alter table public.tv_trades add column if not exists max_against numeric; -- ma
 alter table public.tv_trades add column if not exists trend text;          -- 'with' / 'against': H1 EMA 50/200 trend at the first fill, from the chart
 alter table public.tv_trades add column if not exists market text;         -- 'bullish' / 'bearish' / 'ranging': H1 ADX(14) + EMA 50/200 at the first fill, from the chart
 alter table public.tv_trades add column if not exists adx numeric;          -- H1 ADX(14) at the first fill (below 20 = ranging), from the chart
+alter table public.tv_trades add column if not exists after_sl numeric;      -- SL trades: pips price went beyond E4 after the SL (up to 70), from the chart
+alter table public.tv_trades add column if not exists after_sl_result text; -- 'tp1' = came back to TP1 within the limit, 'over' = went past the limit

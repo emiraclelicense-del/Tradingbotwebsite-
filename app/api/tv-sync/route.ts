@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 // and stores every closed Pine trade:
 //   "history" alerts : {"event":"history","symbol":"XAUUSD","tf":"5","trades":"<unix>|<code>|<side>|<best>|<runs>|<obId>|<E1,E2,E3,E4>|<SL>|<TP1/TP2/..>|<TPs hit>|<entries filled>|<max move from E1, pips>|<max against after the last fill, pips>|<trend 1 with / -1 against / 0>;..."}
 //                      code 2 target, 1 BE after TP, 3 worked then SL, 0 fail
+//   "result" alerts  : the full result at the candle close of a trade whose close went out live (the EA ignores them)
 //   "close" alerts   : the live end of a trade, e.g. msg "TP2 ✓ TARGET (LIVE)", "SL | FAIL | AGAINST E1 12.0p | TREND WITH | RUNS E1 +8.5p"
 // Flux OB script (newFlux.pine): its alerts carry "src":"flux" and (website-only mode) events flux_limits / flux_close ...
 // that the MT5 EA ignores; they are stored with keys "FLUX|symbol|tf|OB id" (Flux OB History tab).
@@ -109,7 +110,7 @@ async function sync() {
       if (a.event === "limits" || !firstSl.has(k)) firstSl.set(k, fmt(a.sl)!);
       continue;
     }
-    if (a.event === "close" && typeof a.id === "string" && a.id.endsWith("_tg") && (a.side === "buy" || a.side === "sell") && typeof env.time === "number") {
+    if ((a.event === "close" || a.event === "result") && typeof a.id === "string" && a.id.endsWith("_tg") && (a.side === "buy" || a.side === "sell") && typeof env.time === "number") {
       const msg = typeof a.msg === "string" ? a.msg : "";
       const k = `${pre}${symbol}|${tf}|${a.id.slice(0, -3)}`;
       const limits = Array.isArray(a.limits) ? a.limits.filter((v): v is number => typeof v === "number") : [];

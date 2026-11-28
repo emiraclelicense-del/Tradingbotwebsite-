@@ -29,8 +29,10 @@ const LOT_PLAN: Record<string, number[]> = {
   "15": [0.65, 0.01, 0.35, 0.01, 0.01, 0.01, 0.01],
   "20": [0.50, 0.01, 0.50, 0.01, 0.01, 0.01, 0.01],
 };
-const LOT_DEFAULT = [0.5, 0, 0.3, 0, 0.1, 0, 0.1];                   // other charts (M5, M12, M30, H1): E1 0.5 · E2 0.3 · E3 0.1 · E4 0.1
-const lotsOf = (tf: string) => LOT_PLAN[tf] ?? LOT_DEFAULT;
+// every chart uses one of the 3 plans: below M15 (M5, M10, M12) -> M10 lots, M15 -> M15 lots, M20 and above (M30, H1) -> M20 lots
+const planOf = (tf: string) => (LOT_PLAN[tf] ? tf : tfMinutes(tf) < 15 ? "10" : "20");
+const lotsOf = (tf: string) => LOT_PLAN[planOf(tf)];
+const PLAN_USERS: Record<string, string> = { "10": "M5 · M10 · M12", "15": "M15", "20": "M20 · M30 · H1" };
 const lotText = (v: number) => v.toFixed(2);
 /** price of level slot i (0..6): E1..E4 on the even slots, the half levels in between */
 const slotPrice = (lims: number[], i: number) => (i % 2 === 0 ? lims[i / 2] : (lims[(i - 1) / 2] + lims[(i + 1) / 2]) / 2);
@@ -257,8 +259,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       ["Avg max move (wins)", avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`],
       ["", ""],
       ["Lots per chart", LEVELS.join(" · ")],
-      ...Object.entries(LOT_PLAN).map(([k, v]): [string, string] => [tfLabel(k), `${v.map(lotText).join(" · ")} = ${lotText(v.reduce((x, y) => x + y, 0))}`]),
-      ["Other charts", `${LOT_DEFAULT.map(lotText).join(" · ")} = ${lotText(LOT_DEFAULT.reduce((x, y) => x + y, 0))}`],
+      ...Object.entries(LOT_PLAN).map(([k, v]): [string, string] => [PLAN_USERS[k], `${v.map(lotText).join(" · ")} = ${lotText(v.reduce((x, y) => x + y, 0))}`]),
     ];
     for (const r of rows) sum.addRow(r);
     sum.getRow(1).font = { bold: true, size: 14 };
@@ -300,12 +301,12 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   return <main className="dark-theme">
     <SiteNav />
     <section className="hero"><div className="hero-copy"><p className="eyebrow">{flux ? "TRADINGVIEW · FLUX OB" : "TRADINGVIEW"}</p>
-      <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with the lots of each chart below (E1.5 = halfway between E1 and E2; E1 → TP1, E1.5 + E2 → TP2, E2.5 + E3 → TP3, E3.5 + E4 → TP4).</p></div></section>
+      <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with the lots below for every chart (M5 and M12 use the M10 lots, M30 and H1 the M20 lots; E1.5 = halfway between E1 and E2; E1 → TP1, E1.5 + E2 → TP2, E2.5 + E3 → TP3, E3.5 + E4 → TP4).</p></div></section>
 
     <section className="table-card tv-lots-card" aria-label="Lots per chart">
       <div className="table-wrap"><table className="tv-lots"><thead><tr><th></th>{LEVELS.map((l) => <th key={l}>{l}</th>)}<th>Total</th></tr></thead>
-        <tbody>{[...Object.entries(LOT_PLAN), ["other", LOT_DEFAULT] as const].map(([k, v]) => <tr key={k}><th>{k === "other" ? "Other" : tfLabel(k)}</th>
-          {v.map((x, i) => <td key={i}><span className={x >= 0.5 ? "tv-lot-big" : x >= 0.2 ? "tv-lot-mid" : "tv-lot-low"}>{x ? lotText(x) : "—"}</span></td>)}
+        <tbody>{Object.entries(LOT_PLAN).map(([k, v]) => <tr key={k}><th>{tfLabel(k)}<span className="tv-lots-for">{PLAN_USERS[k]}</span></th>
+          {v.map((x, i) => <td key={i}><span className={x >= 0.5 ? "tv-lot-big" : x >= 0.2 ? "tv-lot-mid" : "tv-lot-low"}>{lotText(x)}</span></td>)}
           <td><b>{lotText(v.reduce((x, y) => x + y, 0))}</b></td></tr>)}</tbody></table></div>
     </section>
 

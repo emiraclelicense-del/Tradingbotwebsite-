@@ -109,3 +109,6 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .tv-lots td span { display: inline-block; min-width: 54px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 255, 255, .06); }
 .tv-lots td span.tv-lot-big { background: #136b52; color: #fff; font-weight: 700; }
 .tv-lots td span.tv-lot-mid { background: #9fe0c8; color: #0b2a20; font-weight: 700; }
+.tv-lots { min-width: 640px; table-layout: fixed; }
+.tv-lots td { min-width: 0 !important; white-space: nowrap !important; color: inherit !important; padding: 10px 6px; }
+.tv-lots .tv-lots-for { display: block; font-size: 11px; opacity: .6; margin-top: 3px; }

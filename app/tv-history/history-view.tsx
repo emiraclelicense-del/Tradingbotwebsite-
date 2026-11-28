@@ -21,77 +21,102 @@ const PAGE = 50;                                                                
 /** Pine timeframe -> label: "5" -> M5, "60" -> H1, "D" -> D */
 const tfLabel = (tf: string) => /^\d+$/.test(tf) ? (Number(tf) % 60 === 0 ? `H${Number(tf) / 60}` : `M${tf}`) : tf;
 const tfMinutes = (tf: string) => /^\d+$/.test(tf) ? Number(tf) : 100000;
-// Lots per entry for 1 lot in total (E1 5 x 0.1, E2 3 x 0.1, E3 0.1, E4 0.1); the page can show 2 lots (x2 = the EA now:
-// E1 5 x 0.2, E2 3 x 0.2, E3 0.2, E4 0.2). E1 orders -> TP1, E2 -> TP2, E3 -> TP3, E4 -> TP4 (TP list capped at 4)
-const LOTS = [0.5, 0.3, 0.1, 0.1];
+// Lots per entry level, per chart (the website P/L): E1, E1.5, E2, E2.5, E3, E3.5, E4 - E1.5 = halfway between E1 and E2 etc.
+// Orders take the TP of their level: E1 -> TP1, E1.5 + E2 -> TP2, E2.5 + E3 -> TP3, E3.5 + E4 -> TP4 (TP list capped at 4)
+const LEVELS = ["E1", "E1.5", "E2", "E2.5", "E3", "E3.5", "E4"];
+const LOT_PLAN: Record<string, number[]> = {
+  "10": [0.75, 0.01, 0.25, 0.01, 0.01, 0.01, 0.01],
+  "15": [0.65, 0.01, 0.35, 0.01, 0.01, 0.01, 0.01],
+  "20": [0.50, 0.01, 0.50, 0.01, 0.01, 0.01, 0.01],
+};
+const LOT_DEFAULT = [0.5, 0, 0.3, 0, 0.1, 0, 0.1];                   // other charts (M5, M12, M30, H1): E1 0.5 · E2 0.3 · E3 0.1 · E4 0.1
+const lotsOf = (tf: string) => LOT_PLAN[tf] ?? LOT_DEFAULT;
+const lotText = (v: number) => v.toFixed(2);
+/** price of level slot i (0..6): E1..E4 on the even slots, the half levels in between */
+const slotPrice = (lims: number[], i: number) => (i % 2 === 0 ? lims[i / 2] : (lims[(i - 1) / 2] + lims[(i + 1) / 2]) / 2);
+/** "E1" / "E1–E2.5": the levels open (k slots) */
+const slotsText = (k: number) => (k <= 1 ? "E1" : `E1–${LEVELS[k - 1]}`);
 const BE_PIPS = 10;                // TP1 hit -> the rest closes at E1 + 10 pips (later TPs: one TP behind)
 const spec = (symbol: string) => /XAU|GOLD/.test(symbol) ? { pip: 0.1, contract: 100 } : /BTC/.test(symbol) ? { pip: 1, contract: 1 } : { pip: 0.0001, contract: 100000 };
 // a price with the decimals of its symbol (gold 2, BTC 1, forex 5)
 const priceText = (symbol: string, v: number) => v.toFixed(spec(symbol).pip >= 1 ? 1 : spec(symbol).pip >= 0.1 ? 2 : 5);
 const usd = (v: number) => `${v < 0 ? "-" : "+"}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/** Profit of a TradingView trade with the lots above, and (SL trades) the highest open profit it had before the SL. */
 /** Entries filled (1..4): stored count, else the deepest entry in the runs. */
 function filledOf(t: TvTrade) {
   const lv = [...t.runs.matchAll(/E(\d)/g)].map((m) => Number(m[1]));
   return Math.max(1, Math.min(4, t.filled ?? (lv.length ? Math.max(...lv) : 1)));
 }
 
-/** The trade's max move: the entry run with the MOST total profit of the entries open then (E1..that entry), e.g. "E2 +176.8p".
+/** Level slots filled: E1..En (2n-1 slots) + the half level after En when price went that far against (max against after En). */
+function slotsOf(t: TvTrade, n: number): number {
+  const lims = t.limits.map(Number);
+  let k = 2 * n - 1;
+  if (n < 4 && t.maxAgainst != null && Number.isFinite(lims[n]) && Number.isFinite(lims[n - 1])) {
+    const half = Math.abs(lims[n] - lims[n - 1]) / 2;
+    if (t.maxAgainst * spec(t.symbol).pip >= half - 1e-9) k += 1;
+  }
+  return k;
+}
+
+/** Open profit of the first k level slots at a price, with the lots of this chart. */
+function openUsd(t: TvTrade, k: number, price: number): number {
+  const lims = t.limits.map(Number), lots = lotsOf(t.tf), { contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
+  let sum = 0;
+  for (let i = 0; i < k; i++) { const p = slotPrice(lims, i); if (Number.isFinite(p)) sum += lots[i] * (price - p) * dir * contract; }
+  return sum;
+}
+
+/** The trade's max move: the entry run with the MOST total profit of the levels open then (E1..that entry), e.g. "E2 +176.8p".
  *  (E1 +0.0p beats E4 +10.2p when E1-E4 open at that E4 peak are still in loss.) */
 function maxMove(t: TvTrade): { pips: number; lvl: number; usd: number; price: number } | null {
   const lims = t.limits.map(Number);
-  const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
+  const { pip } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
   let best: { pips: number; lvl: number; usd: number; price: number } | null = null;
   for (const m of t.runs.matchAll(/E(\d)\s*([+-]?\d+(?:\.\d+)?)p/g)) {
     const lvl = Number(m[1]), pips = Number(m[2]);
     if (lvl < 1 || !Number.isFinite(lims[lvl - 1])) continue;
     const price = lims[lvl - 1] + dir * pips * pip;
-    let usdSum = 0;
-    for (let L = 0; L < lvl; L++) if (Number.isFinite(lims[L])) usdSum += LOTS[L] * (price - lims[L]) * dir * contract;
+    const usdSum = openUsd(t, 2 * lvl - 1, price);
     if (!best || usdSum > best.usd || (usdSum === best.usd && pips > best.pips)) best = { pips, lvl, usd: usdSum, price };
   }
   return best;
 }
 
-/** Max move AGAINST the trade after its last fill (e.g. E2 filled, price went 38.5 pips below E2), and the open loss of E1..En then. */
-function against(t: TvTrade, n: number): { pips: number; usd: number; price: number } | null {
+/** Max move AGAINST the trade after its last fill (e.g. E2 filled, price went 38.5 pips below E2), and the open loss of the levels open then. */
+function against(t: TvTrade, n: number): { pips: number; usd: number; price: number; k: number } | null {
   const lims = t.limits.map(Number);
   if (t.maxAgainst == null || !Number.isFinite(lims[n - 1])) return null;
-  const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
-  const price = lims[n - 1] - dir * t.maxAgainst * pip;
-  let sum = 0;
-  for (let L = 0; L < n; L++) if (Number.isFinite(lims[L])) sum += LOTS[L] * (price - lims[L]) * dir * contract;
-  return { pips: t.maxAgainst, usd: sum, price };
+  const { pip } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
+  const price = lims[n - 1] - dir * t.maxAgainst * pip, k = slotsOf(t, n);
+  return { pips: t.maxAgainst, usd: openUsd(t, k, price), price, k };
 }
 
 function money(t: TvTrade): { pl: number | null; peak: number | null } {
   const lims = t.limits.map(Number), tps = t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map(Number).slice(0, 4) : [], sl = Number(t.stopLoss);
-  if (lims.length < 1 || lims.some((v) => !Number.isFinite(v))) return { pl: null, peak: null };
-  const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1;
+  if (lims.length < 4 || lims.some((v) => !Number.isFinite(v))) return { pl: null, peak: null };
+  const { pip, contract } = spec(t.symbol), dir = t.side === "buy" ? 1 : -1, lots = lotsOf(t.tf);
   const runs = [...t.runs.matchAll(/E(\d)\s*([+-]?\d+(?:\.\d+)?)p/g)].map((m) => ({ lvl: Number(m[1]), run: Number(m[2]) }));
-  const n = Math.min(lims.length, filledOf(t));
+  const n = filledOf(t), k = slotsOf(t, n);
   const ntp = tps.length;
-  const value = (L: number, exit: number) => LOTS[L] * (exit - lims[L]) * dir * contract;
+  const value = (i: number, exit: number) => lots[i] * (exit - slotPrice(lims, i)) * dir * contract;
   let pl: number | null = 0;
   if (t.result === "fail" || t.result === "worked") {
-    if (!Number.isFinite(sl)) pl = null; else for (let L = 0; L < n; L++) pl += value(L, sl);
+    if (!Number.isFinite(sl)) pl = null; else for (let i = 0; i < k; i++) pl += value(i, sl);
   } else if (!ntp) pl = null;
   else {
-    const k = t.result === "target" ? ntp : Math.min(ntp, t.tpHit ?? 1);
+    const hit = t.result === "target" ? ntp : Math.min(ntp, t.tpHit ?? 1);
     const lock = lims[0] + dir * BE_PIPS * pip;
-    let be = k >= 2 ? tps[k - 2] : lock;
+    let be = hit >= 2 ? tps[hit - 2] : lock;
     if ((lock - be) * dir > 0) be = lock;
-    for (let L = 0; L < n; L++) { const ti = Math.min(L, ntp - 1); pl += value(L, ti < k ? tps[ti] : be); }
+    for (let i = 0; i < k; i++) { const ti = Math.min(Math.ceil(i / 2), ntp - 1); pl += value(i, ti < hit ? tps[ti] : be); }
   }
   // SL trades: best moment = the best run of each entry stage, with E1..Ek open
   let peak: number | null = null;
   if (t.result === "fail" || t.result === "worked")
     for (const { lvl, run } of runs) {
-      if (lvl < 1 || lvl > lims.length) continue;
-      const price = lims[lvl - 1] + dir * run * pip;
-      let open = 0;
-      for (let L = 0; L < lvl; L++) open += value(L, price);
+      if (lvl < 1 || lvl > 4) continue;
+      const open = openUsd(t, 2 * lvl - 1, lims[lvl - 1] + dir * run * pip);
       if (peak == null || open > peak) peak = open;
     }
   return { pl, peak };
@@ -141,8 +166,6 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   // result filter: "sl" = every trade that ended on its SL (FAIL + WORKED then SL)
   const [res, setRes] = useState<"all" | "target" | "be" | "sl">("all");
   const [trendF, setTrendF] = useState<"all" | "with" | "against">("all");
-  const lotN = 1;                 // USD figures in 1 lot; the P/L also in 2 lots (x2) next to it
-  const LOT_TOTAL = "1 lot";
   const [live, setLive] = useState<Map<string, LiveTrade[]>>(new Map());
 
   useEffect(() => { document.body.dataset.theme = "dark"; }, []);
@@ -203,7 +226,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const count = (r: Result) => shown.filter((t) => t.result === r).length;
   const wins = count("target") + count("be");
   const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map((t) => maxMove(t)?.pips).filter((v): v is number => v != null);
-  const moneyOf = useMemo(() => new Map(shown.map((t) => { const m = money(t); return [t.key, { pl: m.pl == null ? null : m.pl * lotN, peak: m.peak == null ? null : m.peak * lotN }]; })), [shown, lotN]);
+  const moneyOf = useMemo(() => new Map(shown.map((t) => { return [t.key, money(t)]; })), [shown]);
   const totalPl = shown.reduce((sum, t) => sum + (moneyOf.get(t.key)?.pl ?? 0), 0);
   const liveOf = (t: TvTrade) => /XAU|GOLD/.test(t.symbol) ? live.get(liveKey(t.tf, t.key.split("|").pop() ?? "")) ?? [] : [];
   const liveShown = shown.flatMap(liveOf);
@@ -229,19 +252,23 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       ["Results", ""],
       ["Trades", shown.length], ["Target", count("target")], ["BE after TP", count("be")], ["Worked then SL", count("worked")], ["Fail (SL)", count("fail")],
       ["Win rate", shown.length ? `${Math.round((wins / shown.length) * 100)}%` : "—"],
-      ["Total P/L (1 lot, USD)", shown.length ? Math.round(totalPl * 100) / 100 : "—"], ["Total P/L (2 lots, USD)", shown.length ? Math.round(totalPl * 200) / 100 : "—"],
+      ["Total P/L (USD, lots per chart)", shown.length ? Math.round(totalPl * 100) / 100 : "—"],
       [`Live account P/L (${liveShown.length} trades, USD)`, liveShown.length ? Math.round(liveTotal * 100) / 100 : "—"],
       ["Avg max move (wins)", avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`],
+      ["", ""],
+      ["Lots per chart", LEVELS.join(" · ")],
+      ...Object.entries(LOT_PLAN).map(([k, v]): [string, string] => [tfLabel(k), `${v.map(lotText).join(" · ")} = ${lotText(v.reduce((x, y) => x + y, 0))}`]),
+      ["Other charts", `${LOT_DEFAULT.map(lotText).join(" · ")} = ${lotText(LOT_DEFAULT.reduce((x, y) => x + y, 0))}`],
     ];
     for (const r of rows) sum.addRow(r);
     sum.getRow(1).font = { bold: true, size: 14 };
-    for (const r of [3, 12]) sum.getRow(r).font = { bold: true, color: { argb: "FF1B7F4B" } };
-    for (const r of [19, 20, 21]) { const c = sum.getRow(r).getCell(2); if (typeof c.value === "number") { c.numFmt = "#,##0.00"; c.font = { bold: true, color: { argb: c.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; } }
+    for (const r of [3, 12, 23]) sum.getRow(r).font = { bold: true, color: { argb: "FF1B7F4B" } };
+    for (const r of [19, 20]) { const c = sum.getRow(r).getCell(2); if (typeof c.value === "number") { c.numFmt = "#,##0.00"; c.font = { bold: true, color: { argb: c.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; } }
     const ws = wb.addWorksheet(flux ? "Flux OB History" : "TradingView History", { views: [{ state: "frozen", ySplit: 1 }] });
     ws.columns = [
       ["Closed (PKT)", 18], ["Opened - E1 filled (PKT)", 18], ["OB time (PKT)", 18], ["Symbol", 9], ["Chart", 7], ["Session", 10], ["Side", 6], ["Result", 15], ["Trend", 9], ["Market", 9], ["H1 ADX", 8],
-      ["Entries filled", 9], ["E1", 10], ["E2", 10], ["E3", 10], ["E4", 10], ["SL", 10], ["Take profit", 34], ["TPs hit", 7],
-      ["P/L 1 lot (USD)", 13], ["P/L 2 lots (USD)", 13], ["Live account P/L (USD)", 14], ["Max move (pips)", 11], ["Max move from", 9], ["Max move price", 12], ["Max move profit (USD)", 14],
+      ["Levels filled", 11], ["E1", 10], ["E2", 10], ["E3", 10], ["E4", 10], ["SL", 10], ["Take profit", 34], ["TPs hit", 7],
+      ["P/L (USD, lots per chart)", 14], ["Live account P/L (USD)", 14], ["Max move (pips)", 11], ["Max move from", 9], ["Max move price", 12], ["Max move profit (USD)", 14],
       ["Max against (pips)", 11], ["Max against price", 12], ["After SL beyond E4 (pips)", 13], ["After SL: TP1 reached", 12], ["Max profit before SL (USD)", 15], ["Runs", 48],
     ].map(([header, width]) => ({ header: String(header), width: Number(width) }));
     const num = (v: string | undefined) => (v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : v ?? "");
@@ -250,14 +277,14 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : "");
       const ob = obTimeIso(t.key);
       const row = ws.addRow([closedText(t.closedAt).replace(" PKT", ""), t.openedAt ? closedText(t.openedAt).replace(" PKT", "") : "", ob ? closedText(ob).replace(" PKT", "") : "", t.symbol, tfLabel(t.tf), SESSION_LABELS[sessionOf(t.closedAt)], t.side.toUpperCase(), RESULT_LABELS[t.result], trend, t.market ?? "", t.adx ?? "",
-        n, num(t.limits[0]), num(t.limits[1]), num(t.limits[2]), num(t.limits[3]), num(t.stopLoss), t.takeProfit, t.tpHit ?? "",
-        m?.pl == null ? "" : Math.round(m.pl * 100) / 100, m?.pl == null ? "" : Math.round(m.pl * 200) / 100, lv.length ? Math.round(lv.reduce((sum, l) => sum + (l.usd ?? 0), 0) * 100) / 100 : "",
-        mv?.pips ?? "", mv ? `E${mv.lvl}` : "", mv ? Number(priceText(t.symbol, mv.price)) : "", mv ? Math.round(mv.usd * lotN * 100) / 100 : "",
+        slotsText(slotsOf(t, n)), num(t.limits[0]), num(t.limits[1]), num(t.limits[2]), num(t.limits[3]), num(t.stopLoss), t.takeProfit, t.tpHit ?? "",
+        m?.pl == null ? "" : Math.round(m.pl * 100) / 100, lv.length ? Math.round(lv.reduce((sum, l) => sum + (l.usd ?? 0), 0) * 100) / 100 : "",
+        mv?.pips ?? "", mv ? `E${mv.lvl}` : "", mv ? Number(priceText(t.symbol, mv.price)) : "", mv ? Math.round(mv.usd * 100) / 100 : "",
         ag?.pips ?? "", ag ? Number(priceText(t.symbol, ag.price)) : "", t.afterSlResult === "over" ? "70+" : t.afterSl ?? "", t.afterSlResult === "tp1" ? "yes" : t.afterSlResult === "over" ? "no" : "", m?.peak == null ? "" : Math.round(m.peak * 100) / 100, t.runs]);
-      for (const ci of [20, 21]) { const pl = row.getCell(ci); if (typeof pl.value === "number") pl.font = { color: { argb: pl.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; }
+      for (const ci of [20]) { const pl = row.getCell(ci); if (typeof pl.value === "number") pl.font = { color: { argb: pl.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; }
       row.getCell(8).font = { color: { argb: t.result === "fail" ? "FFC0392B" : t.result === "worked" ? "FFB9770E" : "FF1B7F4B" } };
     }
-    for (const c of [20, 21, 22, 26, 31]) ws.getColumn(c).numFmt = "#,##0.00";
+    for (const c of [20, 21, 25, 30]) ws.getColumn(c).numFmt = "#,##0.00";
     const head = ws.getRow(1);
     head.font = { bold: true, color: { argb: "FFFFFFFF" } };
     head.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF14382C" } };
@@ -273,7 +300,14 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   return <main className="dark-theme">
     <SiteNav />
     <section className="hero"><div className="hero-copy"><p className="eyebrow">{flux ? "TRADINGVIEW · FLUX OB" : "TRADINGVIEW"}</p>
-      <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with 1 lot: E1 0.5 (5 × 0.1) · E2 0.3 (3 × 0.1) · E3 0.1 · E4 0.1 — and with 2 lots: E1 1.0 (5 × 0.2) · E2 0.6 (3 × 0.2) · E3 0.2 · E4 0.2 (E1 → TP1, E2 → TP2, E3 → TP3, E4 → TP4).</p></div></section>
+      <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with the lots of each chart below (E1.5 = halfway between E1 and E2; E1 → TP1, E1.5 + E2 → TP2, E2.5 + E3 → TP3, E3.5 + E4 → TP4).</p></div></section>
+
+    <section className="table-card tv-lots-card" aria-label="Lots per chart">
+      <div className="table-wrap"><table className="tv-lots"><thead><tr><th></th>{LEVELS.map((l) => <th key={l}>{l}</th>)}<th>Total</th></tr></thead>
+        <tbody>{[...Object.entries(LOT_PLAN), ["other", LOT_DEFAULT] as const].map(([k, v]) => <tr key={k}><th>{k === "other" ? "Other" : tfLabel(k)}</th>
+          {v.map((x, i) => <td key={i}><span className={x >= 0.5 ? "tv-lot-big" : x >= 0.2 ? "tv-lot-mid" : "tv-lot-low"}>{x ? lotText(x) : "—"}</span></td>)}
+          <td><b>{lotText(v.reduce((x, y) => x + y, 0))}</b></td></tr>)}</tbody></table></div>
+    </section>
 
     <section className="history-filters" aria-label="TradingView history filters">
       <fieldset className="time-filter"><legend>Symbol</legend><div className="time-filter-buttons">
@@ -307,7 +341,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       <article><span>Worked then SL</span><strong>{count("worked")}</strong></article>
       <article><span>Fail (SL)</span><strong className="negative">{count("fail")}</strong></article>
       <article><span>Win rate</span><strong>{shown.length ? `${Math.round((wins / shown.length) * 100)}%` : "—"}</strong></article>
-      <article><span>Total P/L (1 lot / 2 lots)</span><strong className={totalPl > 0 ? "positive" : totalPl < 0 ? "negative" : ""}>{shown.length ? usd(totalPl) : "—"}</strong>{shown.length > 0 && <small className={`tv-lot2 ${totalPl > 0 ? "positive" : totalPl < 0 ? "negative" : ""}`}>2 lots: {usd(totalPl * 2)}</small>}</article>
+      <article><span>Total P/L (lots per chart)</span><strong className={totalPl > 0 ? "positive" : totalPl < 0 ? "negative" : ""}>{shown.length ? usd(totalPl) : "—"}</strong></article>
       {!flux && <article><span>Live account P/L ({liveShown.length} trades)</span><strong className={liveTotal > 0 ? "positive" : liveTotal < 0 ? "negative" : ""}>{liveShown.length ? usd(liveTotal) : "—"}</strong></article>}
       <article><span>Avg max move (wins)</span><strong>{avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`}</strong></article>
     </section>
@@ -315,23 +349,22 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span className="tv-title-right">{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}<button type="button" className="tv-export" disabled={!shown.length} onClick={() => { exportExcel().catch(() => setError("Could not make the Excel file.")); }}>Export Excel</button></span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Opened / OB time / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>P/L (2 lots)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
-        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 10 : 11}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : pageRows.map((t) => {
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Opened / OB time / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (lots per chart)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
+        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 9 : 10}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : pageRows.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
           const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : null);
           const lvUsd = lv.reduce((sum, l) => sum + (l.usd ?? 0), 0);
           return <tr key={t.key}>
             <td><b>{closedText(t.closedAt)}</b>{t.openedAt && <span className="entry-sub tv-opened">Opened: {closedText(t.openedAt)}</span>}{obTimeIso(t.key) && <span className="entry-sub tv-obtime">OB: {closedText(obTimeIso(t.key)!)}</span>}<span className="entry-sub">{t.symbol} · {tfLabel(t.tf)}</span><span className="entry-sub tv-session">{SESSION_LABELS[sessionOf(t.closedAt)]} session</span></td>
             <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span><span className="cell-stack"><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></span>{trend && <span className={`entry-sub ${trend === "with" ? "positive" : "negative"}`}>{trend === "with" ? "With trend" : "Against trend"}</span>}{t.market && <span className={`entry-sub tv-mkt-${t.market}`}>{t.market === "bullish" ? "Bullish market" : t.market === "bearish" ? "Bearish market" : "Ranging market"}{t.adx != null && ` · ADX ${t.adx.toFixed(1)}`}</span>}</td>
-            <td className="tv-levels"><span className="pill tv-active">{n === 1 ? "E1" : `E1–E${n}`} active ({n}/4)</span>
-              {[0, 1, 2, 3].map((k) => t.limits[k] ? <span key={k} className={`entry-sub ${k < n ? "tv-lvl-on" : "tv-lvl-off"}`}>{k < n ? "✓" : "·"} E{k + 1} {t.limits[k]}</span> : null)}
+            <td className="tv-levels">{(() => { const k = slotsOf(t, n), lims = t.limits.map(Number), lots = lotsOf(t.tf); return <><span className="pill tv-active">{slotsText(k)} active</span>
+              {LEVELS.map((l, i) => { const p = slotPrice(lims, i); return Number.isFinite(p) && lots[i] > 0 ? <span key={l} className={`entry-sub ${i < k ? "tv-lvl-on" : "tv-lvl-off"}`}>{i < k ? "✓" : "·"} {l} {priceText(t.symbol, p)} <span className="tv-from">{lotText(lots[i])}</span></span> : null; })}</>; })()}
               {t.stopLoss && <span className="entry-sub negative">SL {t.stopLoss}</span>}</td>
             <td className={`tv-tps ${t.takeProfit ? "positive" : ""}`}>{t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map((tp, k) => <span key={k} className="entry-sub">TP{k + 1} {tp}</span>) : "—"}</td>
             <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl)}</b>}</td>
-            <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl * 2)}</b>}</td>
             {!flux && <td className={lv.length === 0 ? "" : lvUsd > 0 ? "positive" : lvUsd < 0 ? "negative" : ""}>{lv.length === 0 ? <span className="tv-from">not traded</span> : <><b>{usd(lvUsd)}</b>{lv.map((l, k) => <span key={k} className="entry-sub">{LIVE_RESULT[l.result] ?? l.result}{l.pips == null ? "" : ` ${l.pips > 0 ? "+" : ""}${l.pips}p`} · {l.account}</span>)}</>}</td>}
-            <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">Price {priceText(t.symbol, mv.price)}</span><span className="entry-sub">E1{mv.lvl > 1 ? `–E${mv.lvl}` : ""} open: {usd(mv.usd * lotN)}</span></>}</td>
-            <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">Price {priceText(t.symbol, ag.price)}{(() => { const sl = Number(t.stopLoss); const hit = (t.result === "fail" || t.result === "worked") && Number.isFinite(sl) && Math.abs(ag.price - sl) <= spec(t.symbol).pip * 0.6; return hit ? <b className="negative"> · SL hit</b> : <span className="positive"> · came back</span>; })()}</span><span className="entry-sub">E1{n > 1 ? `–E${n}` : ""} open: {usd(ag.usd * lotN)}</span>{t.afterSlResult && <span className={`entry-sub ${t.afterSlResult === "tp1" ? "positive" : "negative"}`}>After SL: {t.afterSlResult === "over" ? "70p+" : `-${t.afterSl}p`} beyond E4 · {t.afterSlResult === "tp1" ? "came back to TP1 ✓" : "no TP1 ✗"}</span>}</>}</td>
+            <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">Price {priceText(t.symbol, mv.price)}</span><span className="entry-sub">{slotsText(2 * mv.lvl - 1)} open: {usd(mv.usd)}</span></>}</td>
+            <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">Price {priceText(t.symbol, ag.price)}{(() => { const sl = Number(t.stopLoss); const hit = (t.result === "fail" || t.result === "worked") && Number.isFinite(sl) && Math.abs(ag.price - sl) <= spec(t.symbol).pip * 0.6; return hit ? <b className="negative"> · SL hit</b> : <span className="positive"> · came back</span>; })()}</span><span className="entry-sub">{slotsText(ag.k)} open: {usd(ag.usd)}</span>{t.afterSlResult && <span className={`entry-sub ${t.afterSlResult === "tp1" ? "positive" : "negative"}`}>After SL: {t.afterSlResult === "over" ? "70p+" : `-${t.afterSl}p`} beyond E4 · {t.afterSlResult === "tp1" ? "came back to TP1 ✓" : "no TP1 ✗"}</span>}</>}</td>
             <td className={m?.peak != null && m.peak > 0 ? "positive" : ""}>{m?.peak == null ? "—" : <b>{usd(m.peak)}</b>}</td>
             <td className="tv-runs">{t.runs || "—"}</td>
           </tr>;

@@ -9,7 +9,14 @@ type TvTrade = { key: string; symbol: string; tf: string; side: "buy" | "sell"; 
 
 const RESULT_LABELS: Record<Result, string> = { target: "TARGET", be: "BE after TP", worked: "WORKED then SL", fail: "FAIL (SL)" };
 const RESULT_TONE: Record<Result, string> = { target: "gain", be: "open", worked: "be", fail: "loss" };
-const DAY_OPTIONS = [{ value: 1, label: "Today" }, { value: 7, label: "7 days" }, { value: 31, label: "Last month" }];
+// time filter: Today / Yesterday (Pakistan days), 7 days, last month, or a custom From - To date range (Pakistan dates)
+type DayMode = "today" | "yesterday" | "7" | "31" | "custom";
+const DAY_OPTIONS: { value: DayMode; label: string }[] = [{ value: "today", label: "Today" }, { value: "yesterday", label: "Yesterday" }, { value: "7", label: "7 days" }, { value: "31", label: "Last month" }, { value: "custom", label: "Date range" }];
+const PKT = 5 * 3600000;
+const pktMidnight = (ms: number) => Math.floor((ms + PKT) / 86400000) * 86400000 - PKT;          // start of that Pakistan day (UTC ms)
+const pktDayStart = (ymd: string) => Date.parse(`${ymd}T00:00:00Z`) - PKT;                      // "2026-11-20" -> 20 Nov 00:00 PKT
+const pktToday = () => new Date(Date.now() + PKT).toISOString().slice(0, 10);
+const PAGE = 50;                                                                                  // trades per page
 
 /** Pine timeframe -> label: "5" -> M5, "60" -> H1, "D" -> D */
 const tfLabel = (tf: string) => /^\d+$/.test(tf) ? (Number(tf) % 60 === 0 ? `H${Number(tf) / 60}` : `M${tf}`) : tf;
@@ -123,7 +130,10 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const [error, setError] = useState("");
   const [symbol, setSymbol] = useState("all");
   const [tf, setTf] = useState("all");
-  const [days, setDays] = useState(31);
+  const [days, setDays] = useState<DayMode>("31");
+  const [dFrom, setDFrom] = useState(() => new Date(Date.now() + PKT - 7 * 86400000).toISOString().slice(0, 10));
+  const [dTo, setDTo] = useState(pktToday);
+  const [page, setPage] = useState(0);
   const [session, setSession] = useState<"all" | Session>("all");
   const [market, setMarket] = useState<"all" | "bullish" | "bearish" | "ranging">("all");
   // result filter: "sl" = every trade that ended on its SL (FAIL + WORKED then SL)
@@ -138,9 +148,17 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   useEffect(() => {
     let alive = true;
     async function load() {
-      const from = new Date(Date.now() - 31 * 86400000).toISOString();
-      const base = supabase.from("tv_trades").select("*").gte("closed_at", from);
-      const { data, error: loadError } = await (flux ? base.like("key", "FLUX|%") : base.not("key", "like", "FLUX|%")).order("closed_at", { ascending: false }).limit(2000);
+      const from = new Date(Date.now() - 92 * 86400000).toISOString();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows straight from Supabase
+      const data: Record<string, any>[] = [];
+      let loadError: unknown = null;
+      for (let off = 0; off < 20000; off += 1000) {
+        const base = supabase.from("tv_trades").select("*").gte("closed_at", from);
+        const res = await (flux ? base.like("key", "FLUX|%") : base.not("key", "like", "FLUX|%")).order("closed_at", { ascending: false }).range(off, off + 999);
+        if (res.error) { loadError = res.error; break; }
+        data.push(...(res.data ?? []));
+        if ((res.data ?? []).length < 1000) break;
+      }
       if (!alive) return;
       if (loadError) setError("Could not load the TradingView history.");
       // the live account trades of the same period (MT5 EA -> Trade History), matched by chart + order block
@@ -157,7 +175,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       setLive(byKey);
       setTrades((data ?? []).map((row) => ({
         key: String(row.key), symbol: String(row.symbol), tf: String(row.tf), side: row.side === "sell" ? "sell" : "buy", closedAt: String(row.closed_at),
-        result: (["target", "be", "worked", "fail"].includes(row.result) ? row.result : "fail") as Result,
+        result: (["target", "be", "worked", "fail"].includes(String(row.result)) ? row.result : "fail") as Result,
         bestRun: row.best_run == null ? null : Number(row.best_run), runs: row.runs ? String(row.runs) : "", limits: row.entry ? String(row.entry).split(/\s*,\s*/) : [], stopLoss: row.stop_loss ? String(row.stop_loss) : "",
         takeProfit: row.take_profit ? String(row.take_profit) : "", tpHit: row.tp_hit == null ? null : Number(row.tp_hit), filled: row.filled == null ? null : Number(row.filled), maxMove: row.max_move == null ? null : Number(row.max_move), maxAgainst: row.max_against == null ? null : Number(row.max_against), trend: row.trend ? String(row.trend) : null, market: row.market ? String(row.market) : null, adx: row.adx == null ? null : Number(row.adx), afterSl: row.after_sl == null ? null : Number(row.after_sl), afterSlResult: row.after_sl_result ? String(row.after_sl_result) : null,
       })));
@@ -171,9 +189,15 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const symbols = useMemo(() => [...new Set(trades.map((t) => t.symbol))].sort(), [trades]);
   const tfs = useMemo(() => [...new Set(trades.filter((t) => symbol === "all" || t.symbol === symbol).map((t) => t.tf))].sort((a, b) => tfMinutes(a) - tfMinutes(b)), [trades, symbol]);
   const shown = useMemo(() => {
-    const from = days === 1 ? Math.floor((Date.now() + 5 * 3600000) / 86400000) * 86400000 - 5 * 3600000 : Date.now() - days * 86400000;   // "Today" = since midnight Pakistan time
-    return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && (session === "all" || sessionOf(t.closedAt) === session) && (market === "all" || t.market === market) && (res === "all" || (res === "sl" ? t.result === "fail" || t.result === "worked" : t.result === res)) && (trendF === "all" || t.trend === trendF) && new Date(t.closedAt).getTime() >= from);
-  }, [trades, symbol, tf, days, session, market, res, trendF]);
+    const today = pktMidnight(Date.now());
+    const [from, to] = days === "today" ? [today, Infinity] : days === "yesterday" ? [today - 86400000, today]
+      : days === "custom" ? [dFrom ? pktDayStart(dFrom) : 0, dTo ? pktDayStart(dTo) + 86400000 : Infinity] : [Date.now() - Number(days) * 86400000, Infinity];
+    return trades.filter((t) => (symbol === "all" || t.symbol === symbol) && (tf === "all" || t.tf === tf) && (session === "all" || sessionOf(t.closedAt) === session) && (market === "all" || t.market === market) && (res === "all" || (res === "sl" ? t.result === "fail" || t.result === "worked" : t.result === res)) && (trendF === "all" || t.trend === trendF) && new Date(t.closedAt).getTime() >= from && new Date(t.closedAt).getTime() < to);
+  }, [trades, symbol, tf, days, dFrom, dTo, session, market, res, trendF]);
+  // back to page 1 whenever the filters change
+  useEffect(() => { setPage(0); }, [symbol, tf, days, dFrom, dTo, session, market, res, trendF]);
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE));
+  const pageRows = shown.slice(Math.min(page, pages - 1) * PAGE, Math.min(page, pages - 1) * PAGE + PAGE);
   const count = (r: Result) => shown.filter((t) => t.result === r).length;
   const wins = count("target") + count("be");
   const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map((t) => maxMove(t)?.pips).filter((v): v is number => v != null);
@@ -191,7 +215,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     // sheet 1: the summary boxes of the page + the filters used
     const sum = wb.addWorksheet("Summary");
     sum.columns = [{ width: 28 }, { width: 22 }];
-    const dayLabel = DAY_OPTIONS.find((d) => d.value === days)?.label ?? `${days} days`;
+    const dayLabel = days === "custom" ? `${dFrom || "…"} to ${dTo || "…"}` : DAY_OPTIONS.find((d) => d.value === days)?.label ?? days;
     const rows: [string, string | number][] = [
       [flux ? "Flux OB History" : "TradingView History", `exported ${new Date().toLocaleString("en-GB", { timeZone: "Asia/Karachi" })} PKT`],
       ["", ""],
@@ -257,6 +281,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       </div></fieldset>
       <fieldset className="time-filter"><legend>Time</legend><div className="time-filter-buttons">
         {DAY_OPTIONS.map(({ value, label }) => <button key={value} type="button" className={days === value ? "active" : ""} aria-pressed={days === value} onClick={() => setDays(value)}>{label}</button>)}
+        {days === "custom" && <span className="tv-dates"><label>From <input type="date" value={dFrom} max={dTo || undefined} onChange={(e) => setDFrom(e.target.value)} /></label><label>To <input type="date" value={dTo} min={dFrom || undefined} onChange={(e) => setDTo(e.target.value)} /></label></span>}
       </div></fieldset>
       <fieldset className="time-filter"><legend>Session</legend><div className="time-filter-buttons">
         {(["all", "asian", "london", "newyork"] as const).map((v) => <button key={v} type="button" className={session === v ? "active" : ""} aria-pressed={session === v} onClick={() => setSession(v)} title={v === "all" ? undefined : `${SESSION_LABELS[v]}: ${sessionRange(v)} Pakistan time`}>{v === "all" ? "All" : <>{SESSION_LABELS[v]}<span className="tv-range">{sessionRange(v)}</span></>}</button>)}
@@ -288,7 +313,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span className="tv-title-right">{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}<button type="button" className="tv-export" disabled={!shown.length} onClick={() => { exportExcel().catch(() => setError("Could not make the Excel file.")); }}>Export Excel</button></span></div>
       <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>P/L (2 lots)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
-        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 10 : 11}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
+        <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 10 : 11}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : pageRows.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
           const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : null);
           const lvUsd = lv.reduce((sum, l) => sum + (l.usd ?? 0), 0);
@@ -308,6 +333,11 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
             <td className="tv-runs">{t.runs || "—"}</td>
           </tr>;
         })}</tbody></table></div>
+      {shown.length > PAGE && <div className="pagination">
+        <button type="button" disabled={page <= 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>← Previous</button>
+        <span>Page {Math.min(page, pages - 1) + 1} of {pages} · trades {Math.min(page, pages - 1) * PAGE + 1}–{Math.min(shown.length, (Math.min(page, pages - 1) + 1) * PAGE)} of {shown.length}</span>
+        <button type="button" disabled={page >= pages - 1} onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}>Next →</button>
+      </div>}
     </section>
   </main>;
 }

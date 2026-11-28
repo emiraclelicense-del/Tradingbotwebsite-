@@ -14,8 +14,10 @@ const DAY_OPTIONS = [{ value: 1, label: "Today" }, { value: 7, label: "7 days" }
 /** Pine timeframe -> label: "5" -> M5, "60" -> H1, "D" -> D */
 const tfLabel = (tf: string) => /^\d+$/.test(tf) ? (Number(tf) % 60 === 0 ? `H${Number(tf) / 60}` : `M${tf}`) : tf;
 const tfMinutes = (tf: string) => /^\d+$/.test(tf) ? Number(tf) : 100000;
-// Lots per entry (1 lot in total), like the MT5 EA: E1 orders -> TP1, E2 -> TP2, E3 -> TP3, E4 -> TP4 (TP list capped at 4)
-const LOTS = [0.5, 0.3, 0.1, 0.1];
+// Lots per entry (2 lots in total), like the MT5 EA: E1 5 x 0.2, E2 3 x 0.2, E3 1 x 0.2, E4 1 x 0.2
+// (E1 orders -> TP1, E2 -> TP2, E3 -> TP3, E4 -> TP4; TP list capped at 4)
+const LOTS = [1.0, 0.6, 0.2, 0.2];
+const LOT_TOTAL = "2 lots";
 const BE_PIPS = 10;                // TP1 hit -> the rest closes at E1 + 10 pips (later TPs: one TP behind)
 const spec = (symbol: string) => /XAU|GOLD/.test(symbol) ? { pip: 0.1, contract: 100 } : /BTC/.test(symbol) ? { pip: 1, contract: 1 } : { pip: 0.0001, contract: 100000 };
 // a price with the decimals of its symbol (gold 2, BTC 1, forex 5)
@@ -200,7 +202,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       ["Results", ""],
       ["Trades", shown.length], ["Target", count("target")], ["BE after TP", count("be")], ["Worked then SL", count("worked")], ["Fail (SL)", count("fail")],
       ["Win rate", shown.length ? `${Math.round((wins / shown.length) * 100)}%` : "—"],
-      ["Total P/L (1 lot, USD)", shown.length ? Math.round(totalPl * 100) / 100 : "—"],
+      [`Total P/L (${LOT_TOTAL}, USD)`, shown.length ? Math.round(totalPl * 100) / 100 : "—"],
       [`Live account P/L (${liveShown.length} trades, USD)`, liveShown.length ? Math.round(liveTotal * 100) / 100 : "—"],
       ["Avg max move (wins)", avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`],
     ];
@@ -212,7 +214,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     ws.columns = [
       ["Closed (PKT)", 18], ["Symbol", 9], ["Chart", 7], ["Session", 10], ["Side", 6], ["Result", 15], ["Trend", 9], ["Market", 9], ["H1 ADX", 8],
       ["Entries filled", 9], ["E1", 10], ["E2", 10], ["E3", 10], ["E4", 10], ["SL", 10], ["Take profit", 34], ["TPs hit", 7],
-      ["P/L 1 lot (USD)", 13], ["Live account P/L (USD)", 14], ["Max move (pips)", 11], ["Max move from", 9], ["Max move price", 12], ["Max move profit (USD)", 14],
+      [`P/L ${LOT_TOTAL} (USD)`, 13], ["Live account P/L (USD)", 14], ["Max move (pips)", 11], ["Max move from", 9], ["Max move price", 12], ["Max move profit (USD)", 14],
       ["Max against (pips)", 11], ["Max against price", 12], ["After SL beyond E4 (pips)", 13], ["After SL: TP1 reached", 12], ["Max profit before SL (USD)", 15], ["Runs", 48],
     ].map(([header, width]) => ({ header: String(header), width: Number(width) }));
     const num = (v: string | undefined) => (v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : v ?? "");
@@ -244,7 +246,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   return <main className="dark-theme">
     <SiteNav />
     <section className="hero"><div className="hero-copy"><p className="eyebrow">{flux ? "TRADINGVIEW · FLUX OB" : "TRADINGVIEW"}</p>
-      <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with 1 lot: E1 0.5 · E2 0.3 · E3 0.1 · E4 0.1 (E1 → TP1, E2 → TP2, E3 → TP3, E4 → TP4).</p></div></section>
+      <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with {LOT_TOTAL}: E1 1.0 (5 × 0.2) · E2 0.6 (3 × 0.2) · E3 0.2 · E4 0.2 (E1 → TP1, E2 → TP2, E3 → TP3, E4 → TP4).</p></div></section>
 
     <section className="history-filters" aria-label="TradingView history filters">
       <fieldset className="time-filter"><legend>Symbol</legend><div className="time-filter-buttons">
@@ -277,7 +279,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       <article><span>Worked then SL</span><strong>{count("worked")}</strong></article>
       <article><span>Fail (SL)</span><strong className="negative">{count("fail")}</strong></article>
       <article><span>Win rate</span><strong>{shown.length ? `${Math.round((wins / shown.length) * 100)}%` : "—"}</strong></article>
-      <article><span>Total P/L (1 lot)</span><strong className={totalPl > 0 ? "positive" : totalPl < 0 ? "negative" : ""}>{shown.length ? usd(totalPl) : "—"}</strong></article>
+      <article><span>Total P/L ({LOT_TOTAL})</span><strong className={totalPl > 0 ? "positive" : totalPl < 0 ? "negative" : ""}>{shown.length ? usd(totalPl) : "—"}</strong></article>
       {!flux && <article><span>Live account P/L ({liveShown.length} trades)</span><strong className={liveTotal > 0 ? "positive" : liveTotal < 0 ? "negative" : ""}>{liveShown.length ? usd(liveTotal) : "—"}</strong></article>}
       <article><span>Avg max move (wins)</span><strong>{avgRun == null ? "—" : `+${avgRun.toFixed(1)}p`}</strong></article>
     </section>
@@ -285,7 +287,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span className="tv-title-right">{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}<button type="button" className="tv-export" disabled={!shown.length} onClick={() => { exportExcel().catch(() => setError("Could not make the Excel file.")); }}>Export Excel</button></span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L ({LOT_TOTAL})</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
         <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 9 : 10}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : shown.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
           const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : null);

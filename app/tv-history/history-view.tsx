@@ -298,7 +298,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     URL.revokeObjectURL(a.href);
   }
 
-  return <main className="dark-theme">
+  return <main className="dark-theme tv-wide">
     <SiteNav />
     <section className="hero"><div className="hero-copy"><p className="eyebrow">{flux ? "TRADINGVIEW · FLUX OB" : "TRADINGVIEW"}</p>
       <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with the lots below for every chart (M5 and M12 use the M10 lots, M30 and H1 the M20 lots; E1.5 = halfway between E1 and E2; E1 → TP1, E1.5 + E2 → TP2, E2.5 + E3 → TP3, E3.5 + E4 → TP4).</p></div></section>

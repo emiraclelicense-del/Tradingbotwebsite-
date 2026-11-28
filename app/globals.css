@@ -112,3 +112,14 @@ body[data-theme="light"] .light-theme .bot-initial{color:#61716d}
 .tv-lots { min-width: 640px; table-layout: fixed; }
 .tv-lots td { min-width: 0 !important; white-space: nowrap !important; color: inherit !important; padding: 10px 6px; }
 .tv-lots .tv-lots-for { display: block; font-size: 11px; opacity: .6; margin-top: 3px; }
+
+/* TradingView History: full screen width, compact table (everything on one screen) */
+main.tv-wide{max-width:none;padding:18px 18px 60px}
+main.tv-wide .hero{padding:8px 0 16px}
+main.tv-wide .history-filters:has(+ .tv-stats){grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr));gap:10px;margin-bottom:14px}
+main.tv-wide .tv-stats{margin-bottom:14px}
+main.tv-wide .tv-table{min-width:1100px}
+main.tv-wide .tv-table th{white-space:normal;padding:10px 8px;font-size:11px}
+main.tv-wide .tv-table td{padding:10px 8px;font-size:12px}
+main.tv-wide .tv-table td.tv-runs{min-width:140px;max-width:none}
+main.tv-wide .table-title{padding:14px 16px}

@@ -121,6 +121,8 @@ const sessionOf = (iso: string): Session => {
 };
 const pkt = (gmt: number) => { const h = ((gmt + 5) % 24 + 24) % 24; return `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`; };
 const sessionRange = (v: Session) => { const s = sessionHours(new Date()); return v === "newyork" ? `${pkt(s.ny)}–${pkt(s.nyEnd)}` : v === "london" ? `${pkt(s.london)}–${pkt(s.ny)}` : `${pkt(s.nyEnd)}–${pkt(s.london)}`; };
+// the OB id in the key is the start time of the order block candle (ms)
+const obTimeIso = (key: string) => { const v = Number(key.split("|").pop()); return Number.isFinite(v) && v > 1e12 ? new Date(v).toISOString() : null; };
 const closedText = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Karachi" }) + " PKT";
 
 /** flux = the Flux OB script (tv_trades keys "FLUX|..."), else the LuxAlgo Touch & Go script. */
@@ -237,7 +239,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     for (const r of [19, 20, 21]) { const c = sum.getRow(r).getCell(2); if (typeof c.value === "number") { c.numFmt = "#,##0.00"; c.font = { bold: true, color: { argb: c.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; } }
     const ws = wb.addWorksheet(flux ? "Flux OB History" : "TradingView History", { views: [{ state: "frozen", ySplit: 1 }] });
     ws.columns = [
-      ["Closed (PKT)", 18], ["Symbol", 9], ["Chart", 7], ["Session", 10], ["Side", 6], ["Result", 15], ["Trend", 9], ["Market", 9], ["H1 ADX", 8],
+      ["Closed (PKT)", 18], ["OB time (PKT)", 18], ["Symbol", 9], ["Chart", 7], ["Session", 10], ["Side", 6], ["Result", 15], ["Trend", 9], ["Market", 9], ["H1 ADX", 8],
       ["Entries filled", 9], ["E1", 10], ["E2", 10], ["E3", 10], ["E4", 10], ["SL", 10], ["Take profit", 34], ["TPs hit", 7],
       ["P/L 1 lot (USD)", 13], ["P/L 2 lots (USD)", 13], ["Live account P/L (USD)", 14], ["Max move (pips)", 11], ["Max move from", 9], ["Max move price", 12], ["Max move profit (USD)", 14],
       ["Max against (pips)", 11], ["Max against price", 12], ["After SL beyond E4 (pips)", 13], ["After SL: TP1 reached", 12], ["Max profit before SL (USD)", 15], ["Runs", 48],
@@ -246,15 +248,16 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     for (const t of shown) {
       const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
       const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : "");
-      const row = ws.addRow([closedText(t.closedAt).replace(" PKT", ""), t.symbol, tfLabel(t.tf), SESSION_LABELS[sessionOf(t.closedAt)], t.side.toUpperCase(), RESULT_LABELS[t.result], trend, t.market ?? "", t.adx ?? "",
+      const ob = obTimeIso(t.key);
+      const row = ws.addRow([closedText(t.closedAt).replace(" PKT", ""), ob ? closedText(ob).replace(" PKT", "") : "", t.symbol, tfLabel(t.tf), SESSION_LABELS[sessionOf(t.closedAt)], t.side.toUpperCase(), RESULT_LABELS[t.result], trend, t.market ?? "", t.adx ?? "",
         n, num(t.limits[0]), num(t.limits[1]), num(t.limits[2]), num(t.limits[3]), num(t.stopLoss), t.takeProfit, t.tpHit ?? "",
         m?.pl == null ? "" : Math.round(m.pl * 100) / 100, m?.pl == null ? "" : Math.round(m.pl * 200) / 100, lv.length ? Math.round(lv.reduce((sum, l) => sum + (l.usd ?? 0), 0) * 100) / 100 : "",
         mv?.pips ?? "", mv ? `E${mv.lvl}` : "", mv ? Number(priceText(t.symbol, mv.price)) : "", mv ? Math.round(mv.usd * lotN * 100) / 100 : "",
         ag?.pips ?? "", ag ? Number(priceText(t.symbol, ag.price)) : "", t.afterSlResult === "over" ? "70+" : t.afterSl ?? "", t.afterSlResult === "tp1" ? "yes" : t.afterSlResult === "over" ? "no" : "", m?.peak == null ? "" : Math.round(m.peak * 100) / 100, t.runs]);
-      for (const ci of [18, 19]) { const pl = row.getCell(ci); if (typeof pl.value === "number") pl.font = { color: { argb: pl.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; }
-      row.getCell(6).font = { color: { argb: t.result === "fail" ? "FFC0392B" : t.result === "worked" ? "FFB9770E" : "FF1B7F4B" } };
+      for (const ci of [19, 20]) { const pl = row.getCell(ci); if (typeof pl.value === "number") pl.font = { color: { argb: pl.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; }
+      row.getCell(7).font = { color: { argb: t.result === "fail" ? "FFC0392B" : t.result === "worked" ? "FFB9770E" : "FF1B7F4B" } };
     }
-    for (const c of [18, 19, 20, 24, 29]) ws.getColumn(c).numFmt = "#,##0.00";
+    for (const c of [19, 20, 21, 25, 30]) ws.getColumn(c).numFmt = "#,##0.00";
     const head = ws.getRow(1);
     head.font = { bold: true, color: { argb: "FFFFFFFF" } };
     head.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF14382C" } };
@@ -312,13 +315,13 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     {error && <p className="notice">{error}</p>}
     <section className="table-card">
       <div className="table-title"><h2>Closed trades</h2><span className="tv-title-right">{loading ? "Loading…" : `${shown.length} trade${shown.length === 1 ? "" : "s"}`}<button type="button" className="tv-export" disabled={!shown.length} onClick={() => { exportExcel().catch(() => setError("Could not make the Excel file.")); }}>Export Excel</button></span></div>
-      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>P/L (2 lots)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
+      <div className="table-wrap"><table className="entries-table tv-table"><thead><tr><th>Closed (Pakistan time) / OB time / Chart / Session</th><th>Side / Result / Trend / Market</th><th>Entries (✓ filled) / SL</th><th>Take Profit</th><th>P/L (1 lot)</th><th>P/L (2 lots)</th>{!flux && <th>Live account (MT5)</th>}<th>Max Move / Profit</th><th>Max Against (after last entry)</th><th>Max Profit before SL</th><th>Runs (pips per entry)</th></tr></thead>
         <tbody>{shown.length === 0 ? <tr><td className="empty" colSpan={flux ? 10 : 11}>{loading ? "Loading…" : "No TradingView trades in this period yet."}</td></tr> : pageRows.map((t) => {
           const n = filledOf(t), m = moneyOf.get(t.key), mv = maxMove(t), ag = against(t, n), lv = liveOf(t);
           const trend = t.trend ?? (/against/i.test(lv.find((l) => l.trend)?.trend ?? "") ? "against" : lv.some((l) => l.trend) ? "with" : null);
           const lvUsd = lv.reduce((sum, l) => sum + (l.usd ?? 0), 0);
           return <tr key={t.key}>
-            <td><b>{closedText(t.closedAt)}</b><span className="entry-sub">{t.symbol} · {tfLabel(t.tf)}</span><span className="entry-sub tv-session">{SESSION_LABELS[sessionOf(t.closedAt)]} session</span></td>
+            <td><b>{closedText(t.closedAt)}</b>{obTimeIso(t.key) && <span className="entry-sub tv-obtime">OB: {closedText(obTimeIso(t.key)!)}</span>}<span className="entry-sub">{t.symbol} · {tfLabel(t.tf)}</span><span className="entry-sub tv-session">{SESSION_LABELS[sessionOf(t.closedAt)]} session</span></td>
             <td><span className={`pill ${t.side === "buy" ? "gain" : "loss"}`}>{t.side === "buy" ? "BUY" : "SELL"}</span><span className="cell-stack"><span className={`pill ${RESULT_TONE[t.result]}`}>{RESULT_LABELS[t.result]}</span></span>{trend && <span className={`entry-sub ${trend === "with" ? "positive" : "negative"}`}>{trend === "with" ? "With trend" : "Against trend"}</span>}{t.market && <span className={`entry-sub tv-mkt-${t.market}`}>{t.market === "bullish" ? "Bullish market" : t.market === "bearish" ? "Bearish market" : "Ranging market"}{t.adx != null && ` · ADX ${t.adx.toFixed(1)}`}</span>}</td>
             <td className="tv-levels"><span className="pill tv-active">{n === 1 ? "E1" : `E1–E${n}`} active ({n}/4)</span>
               {[0, 1, 2, 3].map((k) => t.limits[k] ? <span key={k} className={`entry-sub ${k < n ? "tv-lvl-on" : "tv-lvl-off"}`}>{k < n ? "✓" : "·"} E{k + 1} {t.limits[k]}</span> : null)}

@@ -14,10 +14,9 @@ const DAY_OPTIONS = [{ value: 1, label: "Today" }, { value: 7, label: "7 days" }
 /** Pine timeframe -> label: "5" -> M5, "60" -> H1, "D" -> D */
 const tfLabel = (tf: string) => /^\d+$/.test(tf) ? (Number(tf) % 60 === 0 ? `H${Number(tf) / 60}` : `M${tf}`) : tf;
 const tfMinutes = (tf: string) => /^\d+$/.test(tf) ? Number(tf) : 100000;
-// Lots per entry (2 lots in total), like the MT5 EA: E1 5 x 0.2, E2 3 x 0.2, E3 1 x 0.2, E4 1 x 0.2
-// (E1 orders -> TP1, E2 -> TP2, E3 -> TP3, E4 -> TP4; TP list capped at 4)
-const LOTS = [1.0, 0.6, 0.2, 0.2];
-const LOT_TOTAL = "2 lots";
+// Lots per entry for 1 lot in total (E1 5 x 0.1, E2 3 x 0.1, E3 0.1, E4 0.1); the page can show 2 lots (x2 = the EA now:
+// E1 5 x 0.2, E2 3 x 0.2, E3 0.2, E4 0.2). E1 orders -> TP1, E2 -> TP2, E3 -> TP3, E4 -> TP4 (TP list capped at 4)
+const LOTS = [0.5, 0.3, 0.1, 0.1];
 const BE_PIPS = 10;                // TP1 hit -> the rest closes at E1 + 10 pips (later TPs: one TP behind)
 const spec = (symbol: string) => /XAU|GOLD/.test(symbol) ? { pip: 0.1, contract: 100 } : /BTC/.test(symbol) ? { pip: 1, contract: 1 } : { pip: 0.0001, contract: 100000 };
 // a price with the decimals of its symbol (gold 2, BTC 1, forex 5)
@@ -130,6 +129,9 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   // result filter: "sl" = every trade that ended on its SL (FAIL + WORKED then SL)
   const [res, setRes] = useState<"all" | "target" | "be" | "sl">("all");
   const [trendF, setTrendF] = useState<"all" | "with" | "against">("all");
+  // lot size the USD figures are shown with (1 lot or 2 lots in total; every USD figure scales with it)
+  const [lotN, setLotN] = useState<1 | 2>(1);
+  const LOT_TOTAL = lotN === 1 ? "1 lot" : "2 lots";
   const [live, setLive] = useState<Map<string, LiveTrade[]>>(new Map());
 
   useEffect(() => { document.body.dataset.theme = "dark"; }, []);
@@ -176,7 +178,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   const count = (r: Result) => shown.filter((t) => t.result === r).length;
   const wins = count("target") + count("be");
   const winMoves = shown.filter((t) => t.result === "target" || t.result === "be").map((t) => maxMove(t)?.pips).filter((v): v is number => v != null);
-  const moneyOf = useMemo(() => new Map(shown.map((t) => [t.key, money(t)])), [shown]);
+  const moneyOf = useMemo(() => new Map(shown.map((t) => { const m = money(t); return [t.key, { pl: m.pl == null ? null : m.pl * lotN, peak: m.peak == null ? null : m.peak * lotN }]; })), [shown, lotN]);
   const totalPl = shown.reduce((sum, t) => sum + (moneyOf.get(t.key)?.pl ?? 0), 0);
   const liveOf = (t: TvTrade) => /XAU|GOLD/.test(t.symbol) ? live.get(liveKey(t.tf, t.key.split("|").pop() ?? "")) ?? [] : [];
   const liveShown = shown.flatMap(liveOf);
@@ -197,7 +199,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       ["Filters", ""],
       ["Symbol", symbol === "all" ? "All" : symbol], ["Timeframe", tf === "all" ? "All" : tfLabel(tf)], ["Time", dayLabel],
       ["Session", session === "all" ? "All" : SESSION_LABELS[session]], ["Market", market === "all" ? "All" : market[0].toUpperCase() + market.slice(1)],
-      ["Result", res === "all" ? "All" : res === "sl" ? "SL hit" : RESULT_LABELS[res]], ["Trend", trendF === "all" ? "All" : trendF === "with" ? "With trend" : "Against trend"],
+      ["Result", res === "all" ? "All" : res === "sl" ? "SL hit" : RESULT_LABELS[res]], ["Trend", trendF === "all" ? "All" : trendF === "with" ? "With trend" : "Against trend"], ["Lot size", LOT_TOTAL],
       ["", ""],
       ["Results", ""],
       ["Trades", shown.length], ["Target", count("target")], ["BE after TP", count("be")], ["Worked then SL", count("worked")], ["Fail (SL)", count("fail")],
@@ -208,8 +210,8 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
     ];
     for (const r of rows) sum.addRow(r);
     sum.getRow(1).font = { bold: true, size: 14 };
-    for (const r of [3, 12]) sum.getRow(r).font = { bold: true, color: { argb: "FF1B7F4B" } };
-    for (const r of [19, 20]) { const c = sum.getRow(r).getCell(2); if (typeof c.value === "number") { c.numFmt = "#,##0.00"; c.font = { bold: true, color: { argb: c.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; } }
+    for (const r of [3, 13]) sum.getRow(r).font = { bold: true, color: { argb: "FF1B7F4B" } };
+    for (const r of [20, 21]) { const c = sum.getRow(r).getCell(2); if (typeof c.value === "number") { c.numFmt = "#,##0.00"; c.font = { bold: true, color: { argb: c.value >= 0 ? "FF1B7F4B" : "FFC0392B" } }; } }
     const ws = wb.addWorksheet(flux ? "Flux OB History" : "TradingView History", { views: [{ state: "frozen", ySplit: 1 }] });
     ws.columns = [
       ["Closed (PKT)", 18], ["Symbol", 9], ["Chart", 7], ["Session", 10], ["Side", 6], ["Result", 15], ["Trend", 9], ["Market", 9], ["H1 ADX", 8],
@@ -224,7 +226,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       const row = ws.addRow([closedText(t.closedAt).replace(" PKT", ""), t.symbol, tfLabel(t.tf), SESSION_LABELS[sessionOf(t.closedAt)], t.side.toUpperCase(), RESULT_LABELS[t.result], trend, t.market ?? "", t.adx ?? "",
         n, num(t.limits[0]), num(t.limits[1]), num(t.limits[2]), num(t.limits[3]), num(t.stopLoss), t.takeProfit, t.tpHit ?? "",
         m?.pl == null ? "" : Math.round(m.pl * 100) / 100, lv.length ? Math.round(lv.reduce((sum, l) => sum + (l.usd ?? 0), 0) * 100) / 100 : "",
-        mv?.pips ?? "", mv ? `E${mv.lvl}` : "", mv ? Number(priceText(t.symbol, mv.price)) : "", mv ? Math.round(mv.usd * 100) / 100 : "",
+        mv?.pips ?? "", mv ? `E${mv.lvl}` : "", mv ? Number(priceText(t.symbol, mv.price)) : "", mv ? Math.round(mv.usd * lotN * 100) / 100 : "",
         ag?.pips ?? "", ag ? Number(priceText(t.symbol, ag.price)) : "", t.afterSlResult === "over" ? "70+" : t.afterSl ?? "", t.afterSlResult === "tp1" ? "yes" : t.afterSlResult === "over" ? "no" : "", m?.peak == null ? "" : Math.round(m.peak * 100) / 100, t.runs]);
       const pl = row.getCell(18);
       if (typeof pl.value === "number") pl.font = { color: { argb: pl.value >= 0 ? "FF1B7F4B" : "FFC0392B" } };
@@ -246,7 +248,7 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
   return <main className="dark-theme">
     <SiteNav />
     <section className="hero"><div className="hero-copy"><p className="eyebrow">{flux ? "TRADINGVIEW · FLUX OB" : "TRADINGVIEW"}</p>
-      <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with {LOT_TOTAL}: E1 1.0 (5 × 0.2) · E2 0.6 (3 × 0.2) · E3 0.2 · E4 0.2 (E1 → TP1, E2 → TP2, E3 → TP3, E4 → TP4).</p></div></section>
+      <h1>{flux ? <>Flux OB <span>History</span></> : <>TradingView <span>History</span></>}</h1><p className="subhead">{flux ? "Every trade the OB TouchGo Flux script (Flux Volumized order blocks only, not traded by the EA) closed in the last month." : "Every trade the TradingView OB Touch & Go script closed in the last month."} P/L with {LOT_TOTAL}: {lotN === 1 ? "E1 0.5 (5 × 0.1) · E2 0.3 (3 × 0.1) · E3 0.1 · E4 0.1" : "E1 1.0 (5 × 0.2) · E2 0.6 (3 × 0.2) · E3 0.2 · E4 0.2"} (E1 → TP1, E2 → TP2, E3 → TP3, E4 → TP4).</p></div></section>
 
     <section className="history-filters" aria-label="TradingView history filters">
       <fieldset className="time-filter"><legend>Symbol</legend><div className="time-filter-buttons">
@@ -269,6 +271,9 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
       </div></fieldset>
       <fieldset className="time-filter"><legend>Trend</legend><div className="time-filter-buttons">
         {([["all", "All"], ["with", "With trend"], ["against", "Against trend"]] as const).map(([v, label]) => <button key={v} type="button" className={trendF === v ? "active" : ""} aria-pressed={trendF === v} onClick={() => setTrendF(v)}>{label}</button>)}
+      </div></fieldset>
+      <fieldset className="time-filter"><legend>Lot size</legend><div className="time-filter-buttons">
+        {([1, 2] as const).map((v) => <button key={v} type="button" className={lotN === v ? "active" : ""} aria-pressed={lotN === v} onClick={() => setLotN(v)}>{v === 1 ? "1 lot" : "2 lots"}</button>)}
       </div></fieldset>
     </section>
 
@@ -301,8 +306,8 @@ export default function TvHistoryView({ flux = false }: { flux?: boolean }) {
             <td className={`tv-tps ${t.takeProfit ? "positive" : ""}`}>{t.takeProfit ? t.takeProfit.split(/\s*\/\s*/).map((tp, k) => <span key={k} className="entry-sub">TP{k + 1} {tp}</span>) : "—"}</td>
             <td className={m?.pl == null ? "" : m.pl > 0 ? "positive" : m.pl < 0 ? "negative" : ""}>{m?.pl == null ? "—" : <b>{usd(m.pl)}</b>}</td>
             {!flux && <td className={lv.length === 0 ? "" : lvUsd > 0 ? "positive" : lvUsd < 0 ? "negative" : ""}>{lv.length === 0 ? <span className="tv-from">not traded</span> : <><b>{usd(lvUsd)}</b>{lv.map((l, k) => <span key={k} className="entry-sub">{LIVE_RESULT[l.result] ?? l.result}{l.pips == null ? "" : ` ${l.pips > 0 ? "+" : ""}${l.pips}p`} · {l.account}</span>)}</>}</td>}
-            <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">Price {priceText(t.symbol, mv.price)}</span><span className="entry-sub">E1{mv.lvl > 1 ? `–E${mv.lvl}` : ""} open: {usd(mv.usd)}</span></>}</td>
-            <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">Price {priceText(t.symbol, ag.price)}{(() => { const sl = Number(t.stopLoss); const hit = (t.result === "fail" || t.result === "worked") && Number.isFinite(sl) && Math.abs(ag.price - sl) <= spec(t.symbol).pip * 0.6; return hit ? <b className="negative"> · SL hit</b> : <span className="positive"> · came back</span>; })()}</span><span className="entry-sub">E1{n > 1 ? `–E${n}` : ""} open: {usd(ag.usd)}</span>{t.afterSlResult && <span className={`entry-sub ${t.afterSlResult === "tp1" ? "positive" : "negative"}`}>After SL: {t.afterSlResult === "over" ? "70p+" : `-${t.afterSl}p`} beyond E4 · {t.afterSlResult === "tp1" ? "came back to TP1 ✓" : "no TP1 ✗"}</span>}</>}</td>
+            <td className={mv && mv.pips > 0 ? "positive" : ""}>{mv == null ? "—" : <><b>{mv.pips >= 0 ? "+" : ""}{mv.pips}p</b> <span className="tv-from">from E{mv.lvl}</span><span className="entry-sub">Price {priceText(t.symbol, mv.price)}</span><span className="entry-sub">E1{mv.lvl > 1 ? `–E${mv.lvl}` : ""} open: {usd(mv.usd * lotN)}</span></>}</td>
+            <td className={ag && ag.pips > 0 ? "negative" : ""}>{ag == null ? "—" : <><b>-{ag.pips}p</b> <span className="tv-from">{t.side === "buy" ? "below" : "above"} E{n}</span><span className="entry-sub">Price {priceText(t.symbol, ag.price)}{(() => { const sl = Number(t.stopLoss); const hit = (t.result === "fail" || t.result === "worked") && Number.isFinite(sl) && Math.abs(ag.price - sl) <= spec(t.symbol).pip * 0.6; return hit ? <b className="negative"> · SL hit</b> : <span className="positive"> · came back</span>; })()}</span><span className="entry-sub">E1{n > 1 ? `–E${n}` : ""} open: {usd(ag.usd * lotN)}</span>{t.afterSlResult && <span className={`entry-sub ${t.afterSlResult === "tp1" ? "positive" : "negative"}`}>After SL: {t.afterSlResult === "over" ? "70p+" : `-${t.afterSl}p`} beyond E4 · {t.afterSlResult === "tp1" ? "came back to TP1 ✓" : "no TP1 ✗"}</span>}</>}</td>
             <td className={m?.peak != null && m.peak > 0 ? "positive" : ""}>{m?.peak == null ? "—" : <b>{usd(m.peak)}</b>}</td>
             <td className="tv-runs">{t.runs || "—"}</td>
           </tr>;
